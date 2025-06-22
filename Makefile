@@ -134,7 +134,7 @@ rpm: all
 	@echo "Создание архива исходников..."
 	tar czf arm64-runner-1.0-rc2.tar.gz --transform 's,^,arm64-runner-1.0-rc2/,' $(shell ls | grep -vE 'deb_dist|arm64-runner-1.0-rc2.tar.gz|.*\.rpm|.*\.deb')
 	@echo "Сборка RPM-пакета..."
-	rpmbuild --define '_topdir $(PWD)/rpm_dist' -ta arm64-runner-1.0-rc2.tar.gz
+	rpmbuild --define '_topdir $(PWD)/rpm_dist' -ta $(PWD)/arm64-runner-1.0-rc2.tar.gz
 	@echo "Готово: rpm_dist/RPMS/$(shell uname -m)/arm64-runner-1.0-rc2-1.$(shell uname -m).rpm"
 
 .PHONY: all clean install test demo security-demo livepatch-security-demo create-patches create-security-patches create-livepatch-security load-patches memory-demo check-deps build help deb rpm 
