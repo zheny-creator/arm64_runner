@@ -1,3 +1,8 @@
+/* 
+ * This Source Code Form is subject to the Mozilla Public License, v. 2.0.
+ * See LICENSE-MPL or https://mozilla.org/MPL/2.0/.
+ */
+
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>

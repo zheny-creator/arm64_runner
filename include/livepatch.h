@@ -1,3 +1,8 @@
+/* 
+ * This Source Code Form is subject to the Mozilla Public License, v. 2.0.
+ * See LICENSE-MPL or https://mozilla.org/MPL/2.0/.
+ */
+
 #ifndef LIVEPATCH_H
 #define LIVEPATCH_H
 
