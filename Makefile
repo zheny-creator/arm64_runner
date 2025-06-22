@@ -132,16 +132,16 @@ deb: all
 
 rpm: clean all
 	@echo "Очистка временных каталогов..."
-	rm -rf rpm_dist arm64-runner-1.0-rc2.tar.gz
+	rm -rf rpm_dist arm64-runner-1.0.tar.gz
 	@echo "Проверка наличия только одного .spec файла..."
 	@if [ $$(find . -maxdepth 1 -name '*.spec' | wc -l) -ne 1 ]; then \
 		echo "Ошибка: В проекте должен быть только один .spec файл в корне!"; exit 1; \
 	fi
 	@echo "Создание архива исходников..."
-	tar czf $(PWD)/arm64-runner-1.0-rc2.tar.gz --transform 's,^,arm64-runner-1.0-rc2/,' \
+	tar czf $(PWD)/arm64-runner-1.0.tar.gz --transform 's,^,arm64-runner-1.0/,' \
 		arm64-runner.spec docs examples include LICENSE livepatch_example livepatch_security_demo Makefile PROJECT_STRUCTURE.md README.md security_patch_example src tests
 	@echo "Сборка RPM-пакета..."
-	rpmbuild --define '_topdir $(PWD)/rpm_dist' -ta $(PWD)/arm64-runner-1.0-rc2.tar.gz
+	rpmbuild --define '_topdir $(PWD)/rpm_dist' -ta $(PWD)/arm64-runner-1.0.tar.gz
 	@echo "Готово: rpm_dist/RPMS/$(shell uname -m)/arm64-runner-1.0-0.rc2.$(shell uname -m).rpm"
 
 .PHONY: all clean install test demo security-demo livepatch-security-demo create-patches create-security-patches create-livepatch-security load-patches memory-demo check-deps build help deb rpm 
