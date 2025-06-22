@@ -9,7 +9,7 @@ License:        GPLv3
 URL:            https://example.com/arm64-runner
 Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  gcc, make
-Requires:       glibc, pthread
+Requires:       glibc
 
 %description
 ARM64 Runner RC2 — эмулятор ARM64 ELF бинарников с поддержкой livepatch.
