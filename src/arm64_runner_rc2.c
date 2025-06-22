@@ -19,6 +19,10 @@
 #include <sys/ioctl.h>
 #include "livepatch.h"
 
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS MAP_ANON
+#endif
+
 // Declare the state structure in advance
 typedef struct Arm64State Arm64State;
 
