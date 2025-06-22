@@ -1,3 +1,5 @@
+%define debug_package %{nil}
+
 Name:           arm64-runner
 Version:        1.0
 Release:        0.rc2%{?dist}
