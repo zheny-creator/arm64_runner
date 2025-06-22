@@ -1,6 +1,6 @@
 Name:           arm64-runner
-Version:        1.0-rc2
-Release:        1%{?dist}
+Version:        1.0
+Release:        0.rc2%{?dist}
 Summary:        ARM64 Runner — эмулятор ARM64 ELF бинарников с поддержкой livepatch
 
 License:        GPLv3
