@@ -1,0 +1,34 @@
+============================
+Livepatch Licensing Notice
+============================
+
+ENGLISH:
+--------
+The Livepatch component (src/livepatch.c, include/livepatch.h) of this project is licensed under the Mozilla Public License, version 2.0 (MPL-2.0).
+
+You are free to use, modify, and distribute the Livepatch code under the terms of the MPL-2.0. The full text of the license is available at:
+https://www.mozilla.org/MPL/2.0/
+
+Key points:
+- You may use Livepatch in both open-source and proprietary projects.
+- If you modify the Livepatch source files, you must make those modified files available under the MPL-2.0.
+- You are not required to open source your entire project, only the files derived from Livepatch.
+- Please keep this notice in all copies or substantial portions of the Livepatch code.
+
+If you have any questions about licensing, please contact the author: Evgeny Borodin <rimkamix0@gmail.com>
+
+
+РУССКИЙ:
+--------
+Компонент Livepatch (src/livepatch.c, include/livepatch.h) данного проекта распространяется по лицензии Mozilla Public License, версия 2.0 (MPL-2.0).
+
+Вы можете свободно использовать, изменять и распространять код Livepatch на условиях MPL-2.0. Полный текст лицензии доступен по адресу:
+https://www.mozilla.org/MPL/2.0/
+
+Основные положения:
+- Вы можете использовать Livepatch как в открытых, так и в коммерческих проектах.
+- Если вы изменяете исходные файлы Livepatch, вы обязаны опубликовать эти изменённые файлы под MPL-2.0.
+- Вам не нужно открывать исходники всего проекта, только изменённые файлы Livepatch.
+- Пожалуйста, сохраняйте это уведомление во всех копиях или значимых частях кода Livepatch.
+
+По вопросам лицензирования обращайтесь к автору: Евгений Бородин <rimkamix0@gmail.com> 
