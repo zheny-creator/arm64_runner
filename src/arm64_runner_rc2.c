@@ -20,7 +20,11 @@
 #include "livepatch.h"
 
 #ifndef MAP_ANONYMOUS
-#define MAP_ANONYMOUS MAP_ANON
+#  ifdef __linux__
+#    define MAP_ANONYMOUS 0x20
+#  else
+#    error "Neither MAP_ANONYMOUS nor MAP_ANON is defined!"
+#  endif
 #endif
 
 // Declare the state structure in advance
