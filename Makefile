@@ -139,7 +139,7 @@ rpm: clean all
 	fi
 	@echo "Создание архива исходников..."
 	tar czf $(PWD)/arm64-runner-1.0-rc2.tar.gz --transform 's,^,arm64-runner-1.0-rc2/,' \
-		$(shell ls | grep -vE 'deb_dist|rpm_dist|arm64-runner-1.0-rc2.tar.gz|.*\.rpm|.*\.deb')
+		arm64-runner.spec docs examples include LICENSE livepatch_example livepatch_security_demo Makefile PROJECT_STRUCTURE.md README.md security_patch_example src tests
 	@echo "Сборка RPM-пакета..."
 	rpmbuild --define '_topdir $(PWD)/rpm_dist' -ta $(PWD)/arm64-runner-1.0-rc2.tar.gz
 	@echo "Готово: rpm_dist/RPMS/$(shell uname -m)/arm64-runner-1.0-0.rc2.$(shell uname -m).rpm"
