@@ -1692,6 +1692,7 @@ int main(int argc, char** argv) {
         printf("  --patches <file>  Загрузить livepatch-патчи из файла (.txt или .lpatch)\n");
         printf("  --debug       Подробный отладочный вывод\n");
         printf("  --changelog   Показать историю изменений проекта\n");
+        printf("  --katze_is_baka Пасхалка\n");
         return 0;
     }
     if (argc >= 2 && (strcmp(argv[1], "--changelog") == 0)) {
@@ -1709,6 +1710,10 @@ int main(int argc, char** argv) {
     }
     if (argc >= 2 && (strcmp(argv[1], "--katze") == 0)) {
         printf("Эй, это не кот на немецком бака!\n");
+        return 0;
+    }
+    if (argc >= 2 && (strcmp(argv[1], "--katze_is_baka") == 0)) {
+        katze_is_baka();
         return 0;
     }
     if (argc < 2) {
@@ -1766,4 +1771,9 @@ int main(int argc, char** argv) {
     memset(state, 0, sizeof(Arm64State));
     free(state);
     return exit_code;
+}
+
+// Прототип новой пасхальной функции
+void katze_is_baka() {
+    printf("Это пасхалка.. А что еще надо?\n");
 }
