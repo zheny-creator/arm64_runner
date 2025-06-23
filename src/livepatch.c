@@ -121,6 +121,15 @@ int livepatch_create_nop(LivePatchSystem* system, uint64_t addr, const char* des
     return livepatch_apply(system, addr, 0xD503201F, description ? description : "NOP patch");
 }
 
+// Базовая валидация ARM64-инструкции (можно расширить по маскам)
+static int is_valid_arm64_instr(uint32_t instr) {
+    // Пример: разрешаем только NOP и B (можно расширить по маскам)
+    if (instr == 0xD503201F) return 1; // NOP
+    if ((instr & 0xFC000000) == 0x14000000) return 1; // B
+    // Можно добавить другие маски
+    return 1; // Пока разрешаем всё, но можно ужесточить
+}
+
 // Функция для проверки валидности адреса
 static int is_valid_address(LivePatchSystem* system, uint64_t addr) {
     return (addr >= system->base_addr && 
