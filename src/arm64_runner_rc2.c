@@ -19,6 +19,12 @@
 #include <sys/ioctl.h>
 #include "livepatch.h"
 #include "update_module.h"
+#ifdef NO_UPDATE_MODULE
+int run_update() {
+    printf("Поддержка обновлений не добавлена в бинарник\n");
+    return 0;
+}
+#endif
 
 #ifndef MAP_ANONYMOUS
 #  ifdef __linux__
