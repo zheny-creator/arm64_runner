@@ -10,7 +10,7 @@
 # =====================================================
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -O2 -g -Iinclude
+CFLAGS = -Wall -Wextra -std=c99 -O2 -g -Iinclude -ldl
 LDFLAGS = -lpthread
 
 # Основные цели
@@ -23,8 +23,12 @@ EXAMPLE_OBJS = examples/livepatch_example.o
 SECURITY_OBJS = examples/security_patch_example.o
 LIVEPATCH_SECURITY_OBJS = examples/livepatch_security_demo.o
 
+SRC = src/arm64_runner_rc2.c src/livepatch.c src/update_module.c
+SRC_NOUPDATE = src/arm64_runner_rc2.c src/livepatch.c
+BIN = arm64_runner_rc2
+
 # Правила по умолчанию
-all: $(TARGETS)
+all: $(BIN)
 
 # Компиляция ARM64 Runner
 arm64_runner: $(RUNNER_OBJS) $(LIVEPATCH_OBJS)
@@ -54,6 +58,7 @@ clean:
 	rm -f $(TARGETS)
 	rm -f src/*.o examples/*.o
 	rm -f patches/*.txt patches/*.bin security_patches.txt
+	rm -f $(BIN)
 
 # Установка
 install: all
@@ -143,5 +148,11 @@ rpm: clean all
 	@echo "Сборка RPM-пакета..."
 	rpmbuild --define '_topdir $(PWD)/rpm_dist' -ta $(PWD)/arm64-runner-1.0.tar.gz
 	@echo "Готово: rpm_dist/RPMS/$(shell uname -m)/arm64-runner-1.0-0.rc2.$(shell uname -m).rpm"
+
+$(BIN): $(SRC)
+	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS)
+
+all-noupdate:
+	$(CC) $(CFLAGS) $(SRC_NOUPDATE) -o $(BIN) $(LDFLAGS)
 
 .PHONY: all clean install test demo security-demo livepatch-security-demo create-patches create-security-patches create-livepatch-security load-patches memory-demo check-deps build help deb rpm 
