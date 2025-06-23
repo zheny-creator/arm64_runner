@@ -1697,6 +1697,10 @@ int main(int argc, char** argv) {
         printf("- Исправлены критические уязвимости (переполнения, проверки границ)\n");
         return 0;
     }
+    if (argc >= 2 && (strcmp(argv[1], "--katze") == 0)) {
+        printf("Эй, это не кот на немецком бака!\n");
+        return 0;
+    }
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <arm64-elf-binary> [--trace] [--patches <file>] [--debug]\n", argv[0]);
         return 1;
