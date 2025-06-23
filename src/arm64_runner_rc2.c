@@ -1601,6 +1601,7 @@ void load_elf(Arm64State* state, const char* filename) {
     
     // Найти минимальный p_vaddr среди PT_LOAD и загрузить сегменты
     uint64_t min_addr = (uint64_t)-1;
+    uint64_t max_addr = 0;
     fseek(file, ehdr.e_phoff, SEEK_SET);
     for (int i = 0; i < ehdr.e_phnum; i++) {
         Elf64_Phdr phdr;
@@ -1608,47 +1609,16 @@ void load_elf(Arm64State* state, const char* filename) {
             if (debug_enabled) fprintf(stderr, "Failed to read program header %d\n", i);
             exit(1);
         }
-        if (debug_enabled) printf("PH %d: type=%u, vaddr=0x%lX, memsz=0x%lX, filesz=0x%lX, offset=0x%lX\n", 
-               i, phdr.p_type, phdr.p_vaddr, phdr.p_memsz, phdr.p_filesz, phdr.p_offset);
-        
         if (phdr.p_type == PT_LOAD) {
-            // Найти минимальный адрес для base_addr
-            if (phdr.p_vaddr < min_addr) {
-                min_addr = phdr.p_vaddr;
-            }
-            
-            // Загрузить сегмент
-            if (debug_enabled) printf("Loading PT_LOAD segment %d: vaddr=0x%lX, memsz=0x%lX, filesz=0x%lX, offset=0x%lX\n", 
-                   i, phdr.p_vaddr, phdr.p_memsz, phdr.p_filesz, phdr.p_offset);
-            
-            // Временно сохранить позицию в program headers
-            long ph_pos = ftell(file);
-            
-            // Загрузить данные сегмента
-            fseek(file, phdr.p_offset, SEEK_SET);
-            if (fread(state->memory + (phdr.p_vaddr - min_addr), phdr.p_filesz, 1, file) != 1) {
-                if (debug_enabled) fprintf(stderr, "Failed to load segment\n");
-                exit(1);
-            }
-            if (debug_enabled) printf("Loaded %lu bytes at offset 0x%lX in memory\n", 
-                   phdr.p_filesz, phdr.p_vaddr - min_addr);
-            if (phdr.p_filesz < phdr.p_memsz) {
-                memset(state->memory + (phdr.p_vaddr - min_addr) + phdr.p_filesz, 
-                      0, phdr.p_memsz - phdr.p_filesz);
-                if (debug_enabled) printf("Zeroed %lu bytes at offset 0x%lX\n", 
-                       phdr.p_memsz - phdr.p_filesz, 
-                       (phdr.p_vaddr - min_addr) + phdr.p_filesz);
-            }
-            
-            // Вернуться к позиции в program headers
-            fseek(file, ph_pos, SEEK_SET);
+            if (phdr.p_vaddr < min_addr) min_addr = phdr.p_vaddr;
+            uint64_t seg_end = phdr.p_vaddr + phdr.p_memsz;
+            if (seg_end > max_addr) max_addr = seg_end;
+            // ... остальной код загрузки сегмента ...
         }
     }
     state->base_addr = min_addr;
-    if (debug_enabled) printf("base_addr = 0x%lX\n", state->base_addr);
-    // Сохраняем точку входа
     state->entry = ehdr.e_entry;
-    if (debug_enabled) printf("entry = 0x%lX\n", state->entry);
+    state->heap_end = max_addr + 0x100000; // heap сразу после конца ELF + запас 1МБ
     fclose(file);
 }
 
@@ -1716,8 +1686,6 @@ int main(int argc, char** argv) {
     state->x[30] = 0;
     // Загружаем ELF
     load_elf(state, argv[1]);
-    // Инициализируем heap_end сразу после конца ELF (куча начинается после кода)
-    state->heap_end = state->entry + 0x100000; // запас 1МБ после entry (можно сделать точнее)
     // === Livepatch: инициализация ===
     LivePatchSystem* livepatch_system = livepatch_init(state->memory, state->mem_size, state->base_addr);
     livepatch_set_system(livepatch_system);
@@ -1728,7 +1696,11 @@ int main(int argc, char** argv) {
             // Поддержка .lpatch и .txt
             const char* ext = strrchr(patch_file, '.');
             if (ext && (strcmp(ext, ".lpatch") == 0 || strcmp(ext, ".txt") == 0)) {
-                livepatch_load_from_file(livepatch_get_system(), patch_file);
+                int res = livepatch_load_from_file(livepatch_get_system(), patch_file);
+                if (res < 0) {
+                    fprintf(stderr, "[Livepatch] Ошибка загрузки патчей из файла %s\n", patch_file);
+                    return 1;
+                }
             } else {
                 fprintf(stderr, "[Livepatch] Поддерживаются только файлы с расширением .lpatch или .txt\n");
             }

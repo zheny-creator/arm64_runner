@@ -53,7 +53,7 @@ LivePatchSystem* livepatch_init(void* memory, size_t mem_size, uint64_t base_add
         perror("malloc for LivePatchSystem");
         return NULL;
     }
-    system->max_patches = 1000; // Maximum 1000 patches
+    system->max_patches = 1000;
     system->patches = calloc(system->max_patches, sizeof(LivePatch));
     if (!system->patches) {
         perror("malloc for patches");
@@ -128,6 +128,15 @@ static int is_valid_address(LivePatchSystem* system, uint64_t addr) {
             (addr - system->base_addr) % 4 == 0);
 }
 
+// В начало файла:
+static int is_valid_arm64_instr(uint32_t instr) {
+    // Пример: разрешаем только NOP и B (можно расширить по маскам)
+    if (instr == 0xD503201F) return 1; // NOP
+    if ((instr & 0xFC000000) == 0x14000000) return 1; // B
+    // Можно добавить другие маски
+    return 1; // Пока разрешаем всё, но можно ужесточить
+}
+
 // Функция для применения патча
 int livepatch_apply(LivePatchSystem* system, uint64_t target_addr, 
                    uint32_t new_instr, const char* description) {
@@ -155,14 +164,34 @@ int livepatch_apply(LivePatchSystem* system, uint64_t target_addr,
     
     // Проверяем, есть ли место для нового патча
     if (system->patch_count >= system->max_patches) {
-        if (debug_enabled) fprintf(stderr, "[LIVEPATCH] Достигнут лимит патчей\n");
-        pthread_mutex_unlock(&system->mutex);
-        return -1;
+        size_t new_max = system->max_patches * 2;
+        LivePatch* new_patches = realloc(system->patches, new_max * sizeof(LivePatch));
+        if (!new_patches) {
+            if (debug_enabled) fprintf(stderr, "[LIVEPATCH] Не удалось увеличить массив патчей\n");
+            pthread_mutex_unlock(&system->mutex);
+            return -1;
+        }
+        system->patches = new_patches;
+        memset(system->patches + system->max_patches, 0, (new_max - system->max_patches) * sizeof(LivePatch));
+        system->max_patches = new_max;
+        if (debug_enabled) fprintf(stderr, "[LIVEPATCH] Увеличен лимит патчей до %zu\n", new_max);
     }
     
     // Читаем оригинальную инструкцию
     uint64_t offset = target_addr - system->base_addr;
     uint32_t original_instr = *((uint32_t*)((char*)system->original_memory + offset));
+    
+    // Проверка перекрытия патчей
+    for (size_t i = 0; i < system->patch_count; i++) {
+        if (system->patches[i].active) {
+            uint64_t addr = system->patches[i].target_addr;
+            if (target_addr >= addr && target_addr < addr + 4) {
+                if (debug_enabled) fprintf(stderr, "[LIVEPATCH] Перекрытие патча на адресе 0x%lX\n", target_addr);
+                pthread_mutex_unlock(&system->mutex);
+                return -1;
+            }
+        }
+    }
     
     // Создаем новый патч
     LivePatch* patch = &system->patches[system->patch_count];
@@ -171,11 +200,16 @@ int livepatch_apply(LivePatchSystem* system, uint64_t target_addr,
     patch->patched_instr = new_instr;
     patch->size = 4;
     patch->active = 1;
-    patch->applied_time = time(NULL);
+    patch->applied_time = 0;
     strncpy(patch->description, description ? description : "Без описания", 255);
     patch->description[255] = '\0';
     
     // Применяем патч в памяти
+    if (!is_valid_arm64_instr(new_instr)) {
+        if (debug_enabled) fprintf(stderr, "[LIVEPATCH] Недопустимая инструкция: 0x%08X\n", new_instr);
+        pthread_mutex_unlock(&system->mutex);
+        return -1;
+    }
     *((uint32_t*)((char*)system->original_memory + offset)) = new_instr;
     
     system->patch_count++;
@@ -231,7 +265,6 @@ int livepatch_revert_all(LivePatchSystem* system) {
             uint64_t offset = system->patches[i].target_addr - system->base_addr;
             *((uint32_t*)((char*)system->original_memory + offset)) = 
                 system->patches[i].original_instr;
-            
             system->patches[i].active = 0;
             reverted_count++;
         }
@@ -300,13 +333,15 @@ int livepatch_load_from_file(LivePatchSystem* system, const char* filename) {
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\0') {
             continue;
         }
-        
         uint64_t addr;
         uint32_t instr;
-        char description[256];
-        
+        char description[256] = {0};
         // Формат: адрес инструкция описание
-        if (sscanf(line, "%lX %X %255[^\n]", &addr, &instr, description) >= 2) {
+        int n = sscanf(line, "%lX %X %255[^\n]", &addr, &instr, description);
+        if (n >= 2) {
+            if (!is_valid_address(system, addr)) continue;
+            // Обрезаем description до 255 символов
+            description[255] = '\0';
             if (livepatch_apply(system, addr, instr, description) == 0) {
                 loaded_count++;
             }
@@ -413,6 +448,9 @@ LivePatchSystem* livepatch_get_system() {
 
 // Функция для установки глобальной системы
 void livepatch_set_system(LivePatchSystem* system) {
+    if (g_livepatch_system && g_livepatch_system != system) {
+        livepatch_cleanup(g_livepatch_system);
+    }
     g_livepatch_system = system;
 }
 
@@ -422,16 +460,12 @@ void livepatch_demo(LivePatchSystem* system) {
         if (debug_enabled) printf("[LIVEPATCH] Система не инициализирована для демо\n");
         return;
     }
-    
-    if (debug_enabled) printf("\n[LIVEPATCH] Демонстрация системы:\n");
-    if (debug_enabled) printf("================================\n");
-    
-    // Показываем статистику
-    livepatch_stats(system);
-    
-    // Показываем список патчей
-    livepatch_list(system);
-    
-    if (debug_enabled) printf("Демонстрация завершена\n");
-    if (debug_enabled) printf("================================\n");
+    if (debug_enabled) {
+        printf("\n[LIVEPATCH] Демонстрация системы:\n");
+        printf("================================\n");
+        livepatch_stats(system);
+        livepatch_list(system);
+        printf("Демонстрация завершена\n");
+        printf("================================\n");
+    }
 } 

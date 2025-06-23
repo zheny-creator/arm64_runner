@@ -45,7 +45,6 @@ void livepatch_set_system(LivePatchSystem* system);
 int is_nop_instruction(uint32_t instr);
 
 // Константы
-#define LIVEPATCH_MAX_PATCHES 1000
 #define LIVEPATCH_MAX_DESCRIPTION 256
 
 #endif // LIVEPATCH_H 
