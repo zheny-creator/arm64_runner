@@ -53,7 +53,7 @@ LivePatchSystem* livepatch_init(void* memory, size_t mem_size, uint64_t base_add
         perror("malloc for LivePatchSystem");
         return NULL;
     }
-    system->max_patches = 1000; // Maximum 1000 patches
+    system->max_patches = 1000;
     system->patches = calloc(system->max_patches, sizeof(LivePatch));
     if (!system->patches) {
         perror("malloc for patches");
@@ -155,7 +155,34 @@ int livepatch_apply(LivePatchSystem* system, uint64_t target_addr,
     
     // Проверяем, есть ли место для нового патча
     if (system->patch_count >= system->max_patches) {
-        if (debug_enabled) fprintf(stderr, "[LIVEPATCH] Достигнут лимит патчей\n");
+        size_t new_max = system->max_patches * 2;
+        LivePatch* new_patches = realloc(system->patches, new_max * sizeof(LivePatch));
+        if (!new_patches) {
+            if (debug_enabled) fprintf(stderr, "[LIVEPATCH] Не удалось увеличить массив патчей\n");
+            pthread_mutex_unlock(&system->mutex);
+            return -1;
+        }
+        system->patches = new_patches;
+        memset(system->patches + system->max_patches, 0, (new_max - system->max_patches) * sizeof(LivePatch));
+        system->max_patches = new_max;
+        if (debug_enabled) fprintf(stderr, "[LIVEPATCH] Увеличен лимит патчей до %zu\n", new_max);
+    }
+    
+    // Проверка перекрытия патчей
+    for (size_t i = 0; i < system->patch_count; i++) {
+        if (system->patches[i].active) {
+            uint64_t addr = system->patches[i].target_addr;
+            if (target_addr >= addr && target_addr < addr + 4) {
+                if (debug_enabled) fprintf(stderr, "[LIVEPATCH] Перекрытие патча на адресе 0x%lX\n", target_addr);
+                pthread_mutex_unlock(&system->mutex);
+                return -1;
+            }
+        }
+    }
+    
+    // Валидация инструкции
+    if (!is_valid_arm64_instr(new_instr)) {
+        if (debug_enabled) fprintf(stderr, "[LIVEPATCH] Недопустимая инструкция: 0x%08X\n", new_instr);
         pthread_mutex_unlock(&system->mutex);
         return -1;
     }
@@ -171,7 +198,7 @@ int livepatch_apply(LivePatchSystem* system, uint64_t target_addr,
     patch->patched_instr = new_instr;
     patch->size = 4;
     patch->active = 1;
-    patch->applied_time = time(NULL);
+    patch->applied_time = 0;
     strncpy(patch->description, description ? description : "Без описания", 255);
     patch->description[255] = '\0';
     
@@ -306,7 +333,8 @@ int livepatch_load_from_file(LivePatchSystem* system, const char* filename) {
         char description[256];
         
         // Формат: адрес инструкция описание
-        if (sscanf(line, "%lX %X %255[^\n]", &addr, &instr, description) >= 2) {
+        int n = sscanf(line, "%lX %X %255[^\n]", &addr, &instr, description);
+        if (n >= 2) {
             if (livepatch_apply(system, addr, instr, description) == 0) {
                 loaded_count++;
             }
@@ -413,6 +441,9 @@ LivePatchSystem* livepatch_get_system() {
 
 // Функция для установки глобальной системы
 void livepatch_set_system(LivePatchSystem* system) {
+    if (g_livepatch_system && g_livepatch_system != system) {
+        livepatch_cleanup(g_livepatch_system);
+    }
     g_livepatch_system = system;
 }
 
@@ -423,15 +454,12 @@ void livepatch_demo(LivePatchSystem* system) {
         return;
     }
     
-    if (debug_enabled) printf("\n[LIVEPATCH] Демонстрация системы:\n");
-    if (debug_enabled) printf("================================\n");
-    
-    // Показываем статистику
-    livepatch_stats(system);
-    
-    // Показываем список патчей
-    livepatch_list(system);
-    
-    if (debug_enabled) printf("Демонстрация завершена\n");
-    if (debug_enabled) printf("================================\n");
+    if (debug_enabled) {
+        printf("\n[LIVEPATCH] Демонстрация системы:\n");
+        printf("================================\n");
+        livepatch_stats(system);
+        livepatch_list(system);
+        printf("Демонстрация завершена\n");
+        printf("================================\n");
+    }
 } 
