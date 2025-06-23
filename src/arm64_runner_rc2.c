@@ -18,6 +18,7 @@
 #include <sys/select.h>
 #include <sys/ioctl.h>
 #include "livepatch.h"
+#include "update_module.h"
 
 #ifndef MAP_ANONYMOUS
 #  ifdef __linux__
@@ -1668,8 +1669,7 @@ void dump_registers(Arm64State* state) {
 
 int main(int argc, char** argv) {
     if (argc >= 2 && strcmp(argv[1], "--update") == 0) {
-        printf("[Update] Функция обновления пока не реализована.\n");
-        return 0;
+        return run_update();
     }
     if (argc >= 2 && (strcmp(argv[1], "--about") == 0 || strcmp(argv[1], "--version") == 0)) {
         printf("ARM64 Runner v1.0 rc2\nАвтор: Женя Бородин\nИнтерпретатор ARM64 ELF бинарников для Linux x86_64\n");

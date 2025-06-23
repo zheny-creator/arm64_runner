@@ -1,0 +1,73 @@
+Mozilla Public License Version 2.0
+==================================
+
+(Полный текст лицензии на английском — ниже, далее перевод на русском)
+
+---
+
+The following files are licensed under the Mozilla Public License 2.0 (MPL 2.0):
+
+- modules/livepatch.c
+- modules/update_module.c
+- include/update_module.h
+- include/livepatch.h
+
+See https://www.mozilla.org/en-US/MPL/2.0/ for details.
+
+---
+
+MOZILLA PUBLIC LICENSE
+Version 2.0
+
+1. Definitions
+--------------
+1.1. "Contributor" means each individual or legal entity that creates, contributes to the creation of, or owns Covered Software.
+1.2. "Contributor Version" means the combination of the Contributions of others (if any) used by a Contributor and that particular Contributor's Contribution.
+1.3. "Contribution" means Covered Software of a particular Contributor.
+1.4. "Covered Software" means Source Code Form to which the initial Contributor has attached the notice in Exhibit A, the Executable Form of such Source Code Form, and Modifications of such Source Code Form, in each case including portions thereof.
+1.5. "Incompatible With Secondary Licenses" means
+    (a) that the initial Contributor has attached the notice described in Exhibit B to the Covered Software; or
+    (b) that the Covered Software was made available under the terms of version 1.1 or earlier of the License, but not also under the terms of a Secondary License.
+1.6. "Executable Form" means any form of the work other than Source Code Form.
+1.7. "Larger Work" means a work that combines Covered Software with other material, in a separate file or files, that is not Covered Software.
+1.8. "License" means this document.
+1.9. "Licensable" means having the right to grant, to the maximum extent possible, whether at the time of the initial grant or subsequently, any and all of the rights conveyed by this License.
+1.10. "Modifications" means any of the following:
+    (a) any file in Source Code Form that results from an addition to, deletion from, or modification of the contents of Covered Software; or
+    (b) any new file in Source Code Form that contains any Covered Software.
+1.11. "Patent Claims" of a Contributor means any patent claim(s), including without limitation, method, process, and apparatus claims, in any patent Licensable by such Contributor that would be infringed, but for the grant of the License, by the making, using, selling, offering for sale, having made, import, or transfer of either its Contributions or its Contributor Version.
+1.12. "Secondary License" means either the GNU General Public License, Version 2.0, the GNU Lesser General Public License, Version 2.1, the GNU Affero General Public License, Version 3.0, or any later versions of those licenses.
+1.13. "Source Code Form" means the form of the work preferred for making modifications.
+1.14. "You" (or "Your") means an individual or a legal entity exercising rights under this License. For legal entities, "You" includes any entity that controls, is controlled by, or is under common control with You. For purposes of this definition, "control" means (a) the power, direct or indirect, to cause the direction or management of such entity, whether by contract or otherwise, or (b) ownership of more than fifty percent (50%) of the outstanding shares or beneficial ownership of such entity.
+
+(Полный текст лицензии MPL 2.0 на английском доступен по ссылке: https://www.mozilla.org/en-US/MPL/2.0/)
+
+---
+
+ПОЛНЫЙ ТЕКСТ ЛИЦЕНЗИИ НА РУССКОМ (неофициальный перевод)
+========================================================
+
+Мозилла Публичная Лицензия, версия 2.0
+
+1. Определения
+--------------
+1.1. "Участник" — каждое физическое или юридическое лицо, которое создает, вносит вклад в создание или владеет Охраняемым программным обеспечением.
+1.2. "Версия участника" — комбинация Вкладов других лиц (если таковые имеются), используемых Участником, и Вклада этого конкретного Участника.
+1.3. "Вклад" — Охраняемое программное обеспечение конкретного Участника.
+1.4. "Охраняемое программное обеспечение" — форма исходного кода, к которой первоначальный Участник прикрепил уведомление, приведенное в Приложении A, исполняемая форма такого исходного кода и Модификации такого исходного кода, в каждом случае включая их части.
+1.5. "Несовместимо с дополнительными лицензиями" означает:
+    (a) что первоначальный Участник прикрепил уведомление, описанное в Приложении B, к Охраняемому программному обеспечению; или
+    (b) что Охраняемое программное обеспечение было предоставлено на условиях версии 1.1 или более ранней Лицензии, но не также на условиях Дополнительной лицензии.
+1.6. "Исполняемая форма" — любая форма работы, отличная от формы исходного кода.
+1.7. "Более крупная работа" — работа, которая объединяет Охраняемое программное обеспечение с другими материалами, в отдельном файле или файлах, которые не являются Охраняемым программным обеспечением.
+1.8. "Лицензия" — этот документ.
+1.9. "Лицензируемый" — обладающий правом предоставлять, в максимально возможной степени, как в момент первоначального предоставления, так и впоследствии, любые и все права, предоставляемые этой Лицензией.
+1.10. "Модификации" — любое из следующего:
+    (a) любой файл в форме исходного кода, который является результатом добавления, удаления или изменения содержимого Охраняемого программного обеспечения; или
+    (b) любой новый файл в форме исходного кода, который содержит любое Охраняемое программное обеспечение.
+1.11. "Патентные требования" Участника — любые патентные требования, включая, помимо прочего, требования к способу, процессу и устройству, в любом патенте, лицензируемом таким Участником, которые были бы нарушены, если бы не предоставление Лицензии, путем изготовления, использования, продажи, предложения к продаже, изготовления на заказ, импорта или передачи либо его Вкладов, либо его Версии участника.
+1.12. "Дополнительная лицензия" — либо GNU General Public License, версия 2.0, GNU Lesser General Public License, версия 2.1, GNU Affero General Public License, версия 3.0, либо любые более поздние версии этих лицензий.
+1.13. "Форма исходного кода" — форма работы, предпочтительная для внесения изменений.
+1.14. "Вы" (или "Ваш") — физическое или юридическое лицо, осуществляющее права по этой Лицензии. Для юридических лиц "Вы" включает любое лицо, которое контролирует, контролируется или находится под общим контролем с Вами. Для целей этого определения "контроль" означает (a) право, прямо или косвенно, определять направление или управление таким лицом, будь то по контракту или иным образом, или (b) владение более чем пятьюдесятью процентами (50%) выпущенных акций или бенефициарного владения таким лицом.
+
+(Полный текст лицензии MPL 2.0 на русском доступен по ссылке: https://www.mozilla.org/media/MPL/2.0/index.0c5e20c6c9b1.pdf) 

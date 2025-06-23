@@ -23,8 +23,8 @@ EXAMPLE_OBJS = examples/livepatch_example.o
 SECURITY_OBJS = examples/security_patch_example.o
 LIVEPATCH_SECURITY_OBJS = examples/livepatch_security_demo.o
 
-SRC = src/arm64_runner_rc2.c src/livepatch.c src/update_module.c
-SRC_NOUPDATE = src/arm64_runner_rc2.c src/livepatch.c
+SRC = src/arm64_runner_rc2.c modules/livepatch.c modules/update_module.c include/update_module.h
+SRC_NOUPDATE = src/arm64_runner_rc2.c modules/livepatch.c
 BIN = arm64_runner_rc2
 
 # Правила по умолчанию
