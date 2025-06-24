@@ -30,6 +30,7 @@ BIN = arm64_runner_rc2
 
 # Правила по умолчанию
 all: $(BIN)
+	cp arm64_runner_rc2 arm64_runner
 
 # Компиляция ARM64 Runner
 arm64_runner: $(RUNNER_OBJS) $(LIVEPATCH_OBJS)
@@ -156,6 +157,7 @@ $(BIN): $(SRC)
 	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS)
 
 all-noupdate:
-	$(CC) $(CFLAGS) $(SRC_NOUPDATE) -o $(BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) -DNO_UPDATE_MODULE $(SRC_NOUPDATE) -o $(BIN) $(LDFLAGS)
+	cp arm64_runner_rc2 arm64_runner
 
 .PHONY: all clean install test demo security-demo livepatch-security-demo create-patches create-security-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 

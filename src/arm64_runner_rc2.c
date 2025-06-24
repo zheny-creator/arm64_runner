@@ -21,7 +21,7 @@
 #include "update_module.h"
 #ifdef NO_UPDATE_MODULE
 int run_update() {
-    printf("Поддержка обновлений не добавлена в бинарник\n");
+    printf("Update module is not included in this build.\n");
     return 0;
 }
 #endif
@@ -44,6 +44,7 @@ void load_elf(Arm64State* state, const char* filename);
 void interpret_arm64(Arm64State* state);
 void dump_registers(Arm64State* state);
 void raise_segfault(Arm64State* state, uint64_t addr, size_t size, const char* op);
+void katze_is_baka();
 
 // State of the emulated ARM64 processor
 struct Arm64State {
