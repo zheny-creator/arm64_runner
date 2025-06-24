@@ -147,10 +147,20 @@ deb-noupdate: all-noupdate
 	@dpkg-deb --build deb_dist
 	@echo "Готово: deb_dist.deb"
 
-rpm: all
+SOURCE_ARCHIVE = arm64-runner-1.0.tar.gz
+SOURCE_DIR = проектик
+
+$(SOURCE_ARCHIVE):
+	tar czf $(SOURCE_ARCHIVE) --transform='s,^$(SOURCE_DIR),arm64-runner-1.0,' $(SOURCE_DIR)
+
+rpm-prep: $(SOURCE_ARCHIVE)
+	mkdir -p /home/t/rpmbuild/SOURCES/
+	cp $(SOURCE_ARCHIVE) /home/t/rpmbuild/SOURCES/
+
+rpm: all rpm-prep
 	rpmbuild -bb arm64-runner.spec --define 'buildroot $(CURDIR)/rpm_buildroot'
 
-rpm-noupdate: all-noupdate
+rpm-noupdate: all-noupdate rpm-prep
 	rpmbuild -bb arm64-runner.spec --define 'buildroot $(CURDIR)/rpm_buildroot' --define 'noupdate 1'
 
 $(BIN): $(SRC)
