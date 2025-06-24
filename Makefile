@@ -131,24 +131,26 @@ deb: all
 	@rm -rf deb_dist && mkdir -p deb_dist/DEBIAN deb_dist/usr/bin deb_dist/usr/share/doc/arm64-runner
 	@cp arm64_runner deb_dist/usr/bin/arm64_runner
 	@cp docs/README.md deb_dist/usr/share/doc/arm64-runner/README.Debian
-	@echo "Package: arm64-runner\nVersion: 1.0-rc2\nSection: utils\nPriority: optional\nArchitecture: amd64\nMaintainer: Женя Бородин <noreply@example.com>\nDescription: ARM64 Runner RC2 — эмулятор ARM64 ELF бинарников с поддержкой livepatch.\n" > deb_dist/DEBIAN/control
+	@echo "Package: arm64-runner\nVersion: 1.0\nSection: utils\nPriority: optional\nArchitecture: amd64\nMaintainer: Женя Бородин <noreply@example.com>\nDescription: ARM64 Runner 1.0 — эмулятор ARM64 ELF бинарников с поддержкой livepatch.\n" > deb_dist/DEBIAN/control
 	@echo "GPLv3" > deb_dist/usr/share/doc/arm64-runner/copyright
 	@dpkg-deb --build deb_dist
 	@echo "Готово: deb_dist.deb"
 
-rpm: clean all
-	@echo "Очистка временных каталогов..."
-	rm -rf rpm_dist arm64-runner-1.0.tar.gz
-	@echo "Проверка наличия только одного .spec файла..."
-	@if [ $$(find . -maxdepth 1 -name '*.spec' | wc -l) -ne 1 ]; then \
-		echo "Ошибка: В проекте должен быть только один .spec файл в корне!"; exit 1; \
-	fi
-	@echo "Создание архива исходников..."
-	tar czf $(PWD)/arm64-runner-1.0.tar.gz --transform 's,^,arm64-runner-1.0/,' \
-		arm64-runner.spec docs examples include LICENSE livepatch_example livepatch_security_demo Makefile PROJECT_STRUCTURE.md README.md security_patch_example src tests
-	@echo "Сборка RPM-пакета..."
-	rpmbuild --define '_topdir $(PWD)/rpm_dist' -ta $(PWD)/arm64-runner-1.0.tar.gz
-	@echo "Готово: rpm_dist/RPMS/$(shell uname -m)/arm64-runner-1.0-0.rc2.$(shell uname -m).rpm"
+deb-noupdate: all-noupdate
+	@echo "Создание структуры deb-пакета (без update_module)..."
+	@rm -rf deb_dist && mkdir -p deb_dist/DEBIAN deb_dist/usr/bin deb_dist/usr/share/doc/arm64-runner
+	@cp arm64_runner deb_dist/usr/bin/arm64_runner
+	@cp docs/README.md deb_dist/usr/share/doc/arm64-runner/README.Debian
+	@echo "Package: arm64-runner\nVersion: 1.0\nSection: utils\nPriority: optional\nArchitecture: amd64\nMaintainer: Женя Бородин <noreply@example.com>\nDescription: ARM64 Runner 1.0 — эмулятор ARM64 ELF бинарников с поддержкой livepatch.\n" > deb_dist/DEBIAN/control
+	@echo "GPLv3" > deb_dist/usr/share/doc/arm64-runner/copyright
+	@dpkg-deb --build deb_dist
+	@echo "Готово: deb_dist.deb"
+
+rpm: all
+	rpmbuild -bb arm64-runner.spec --define 'buildroot $(CURDIR)/rpm_buildroot'
+
+rpm-noupdate: all-noupdate
+	rpmbuild -bb arm64-runner.spec --define 'buildroot $(CURDIR)/rpm_buildroot' --define 'noupdate 1'
 
 $(BIN): $(SRC)
 	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS)
@@ -156,4 +158,4 @@ $(BIN): $(SRC)
 all-noupdate:
 	$(CC) $(CFLAGS) $(SRC_NOUPDATE) -o $(BIN) $(LDFLAGS)
 
-.PHONY: all clean install test demo security-demo livepatch-security-demo create-patches create-security-patches create-livepatch-security load-patches memory-demo check-deps build help deb rpm 
+.PHONY: all clean install test demo security-demo livepatch-security-demo create-patches create-security-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 

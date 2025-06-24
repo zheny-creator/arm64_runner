@@ -1748,11 +1748,11 @@ int main(int argc, char** argv) {
         return run_update();
     }
     if (argc >= 2 && (strcmp(argv[1], "--about") == 0 || strcmp(argv[1], "--version") == 0)) {
-        printf("ARM64 Runner v1.0 rc2\nАвтор: Женя Бородин\nИнтерпретатор ARM64 ELF бинарников для Linux x86_64\n");
+        printf("ARM64 Runner v1.0\nАвтор: Женя Бородин\nИнтерпретатор ARM64 ELF бинарников для Linux x86_64\n");
         return 0;
     }
     if (argc >= 2 && (strcmp(argv[1], "--help") == 0)) {
-        printf("ARM64 Runner v1.0 rc2\n");
+        printf("ARM64 Runner v1.0\n");
         printf("Использование: %s <arm64-elf-binary> [--trace] [--patches <file>] [--debug]\n", argv[0]);
         printf("Опции:\n");
         printf("  --help        Показать эту справку\n");
@@ -1766,15 +1766,15 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (argc >= 2 && (strcmp(argv[1], "--changelog") == 0)) {
-        printf("Изменения в ARM64 Runner RC2:\n");
+        printf("Изменения в ARM64 Runner 1.0:\n");
         printf("- Поддержка новых арифметических инструкций: MUL, SDIV, UDIV\n");
         printf("- Полная поддержка операций с памятью: LDR, STR, LDUR, STUR, LDP, STP (все варианты)\n");
         printf("- Расширенная поддержка ветвлений: B, B.cond, CBZ, CBNZ, RET, BR\n");
-        printf("- Добавлено 27 новых инструкций ARM64 по сравнению с RC1\n");
+        printf("- Добавлено 27 новых инструкций ARM64 по сравнению с предыдущей версией\n");
         printf("- Существенно расширен набор поддерживаемых системных вызовов (добавлено более 30 новых syscalls: mmap, munmap, select, socket и др.)\n");
         printf("- Улучшена проверка границ и выравнивания памяти\n");
         printf("- Универсальная обработка MOVZ/MOVN/MOVK/SVC/CBZ/CBNZ для совместимости\n");
-        printf("- Совместимость с бинарниками RC1 полностью сохранена\n");
+        printf("- Совместимость с бинарниками предыдущих версий полностью сохранена\n");
         printf("- Исправлены критические уязвимости (переполнения, проверки границ)\n");
         return 0;
     }
