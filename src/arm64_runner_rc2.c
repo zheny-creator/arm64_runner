@@ -763,6 +763,11 @@ void interpret_arm64(Arm64State* state) {
                 uint8_t rt = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
+                // ИСПРАВЛЕНИЕ: Проверяем переполнение при сложении адресов
+                if (state->x[rn] > UINT64_MAX - state->x[rm]) {
+                    raise_segfault(state, state->x[rn], 8, "переполнение адреса");
+                    break;
+                }
                 uint64_t address = state->x[rn] + state->x[rm];
                 if (address < state->base_addr) raise_segfault(state, address, 8, "чтение");
                 if (check_mem_bounds_aligned(state, address, 8, 8)) {
@@ -1059,12 +1064,27 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
         case 63:  // read
             if (state->x[0] < MAX_FDS) {
                 int real_fd = get_real_fd(state->x[0]);
-                if (real_fd >= 0) {
-                    ssize_t n = read(real_fd, (void*)(state->memory + (state->x[1] - state->base_addr)), state->x[2]);
+                uint64_t buf_addr = state->x[1];
+                uint64_t size = state->x[2];
+                int buffer_valid = 1;
+                if (buf_addr < state->base_addr) {
+                    buffer_valid = 0;
+                } else {
+                    uint64_t offset = buf_addr - state->base_addr;
+                    if (offset >= state->mem_size) {
+                        buffer_valid = 0;
+                    } else if (offset > UINT64_MAX - size) {
+                        buffer_valid = 0;
+                    } else if (offset + size > state->mem_size) {
+                        buffer_valid = 0;
+                    }
+                }
+                if (real_fd >= 0 && buffer_valid) {
+                    ssize_t n = read(real_fd, (void*)(state->memory + (buf_addr - state->base_addr)), size);
                     if (n < 0) n = -errno;
                     state->x[0] = n;
                 } else {
-                    state->x[0] = -EBADF;
+                    state->x[0] = buffer_valid ? -EBADF : -EFAULT;
                 }
             } else {
                 state->x[0] = -EBADF;
@@ -1192,14 +1212,27 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
         case 17:  // pread64
         {
             int real_fd = get_real_fd(state->x[0]);
-            if (real_fd >= 0) {
-                ssize_t n = pread(real_fd, 
-                                 (void*)(state->memory + (state->x[1] - state->base_addr)), 
-                                 state->x[2], state->x[3]);
+            uint64_t buf_addr = state->x[1];
+            uint64_t size = state->x[2];
+            int buffer_valid = 1;
+            if (buf_addr < state->base_addr) {
+                buffer_valid = 0;
+            } else {
+                uint64_t offset = buf_addr - state->base_addr;
+                if (offset >= state->mem_size) {
+                    buffer_valid = 0;
+                } else if (offset > UINT64_MAX - size) {
+                    buffer_valid = 0;
+                } else if (offset + size > state->mem_size) {
+                    buffer_valid = 0;
+                }
+            }
+            if (real_fd >= 0 && buffer_valid) {
+                ssize_t n = pread(real_fd, (void*)(state->memory + (buf_addr - state->base_addr)), size, state->x[3]);
                 if (n < 0) n = -errno;
                 state->x[0] = n;
             } else {
-                state->x[0] = -EBADF;
+                state->x[0] = buffer_valid ? -EBADF : -EFAULT;
             }
             break;
         }
@@ -1207,14 +1240,27 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
         case 18:  // pwrite64
         {
             int real_fd = get_real_fd(state->x[0]);
-            if (real_fd >= 0) {
-                ssize_t n = pwrite(real_fd, 
-                                  (void*)(state->memory + (state->x[1] - state->base_addr)), 
-                                  state->x[2], state->x[3]);
+            uint64_t buf_addr = state->x[1];
+            uint64_t size = state->x[2];
+            int buffer_valid = 1;
+            if (buf_addr < state->base_addr) {
+                buffer_valid = 0;
+            } else {
+                uint64_t offset = buf_addr - state->base_addr;
+                if (offset >= state->mem_size) {
+                    buffer_valid = 0;
+                } else if (offset > UINT64_MAX - size) {
+                    buffer_valid = 0;
+                } else if (offset + size > state->mem_size) {
+                    buffer_valid = 0;
+                }
+            }
+            if (real_fd >= 0 && buffer_valid) {
+                ssize_t n = pwrite(real_fd, (void*)(state->memory + (buf_addr - state->base_addr)), size, state->x[3]);
                 if (n < 0) n = -errno;
                 state->x[0] = n;
             } else {
-                state->x[0] = -EBADF;
+                state->x[0] = buffer_valid ? -EBADF : -EFAULT;
             }
             break;
         }
@@ -1222,16 +1268,28 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
         case 19:  // readv
         {
             int real_fd = get_real_fd(state->x[0]);
-            if (real_fd >= 0) {
-                // Упрощенная реализация - читаем только первый элемент iovec
-                struct iovec* iov = (struct iovec*)(state->memory + (state->x[1] - state->base_addr));
-                ssize_t n = read(real_fd, 
-                                (void*)(state->memory + ((uint64_t)iov->iov_base - state->base_addr)), 
-                                iov->iov_len);
+            struct iovec* iov = (struct iovec*)(state->memory + (state->x[1] - state->base_addr));
+            int buffer_valid = 1;
+            uint64_t iov_base = (uint64_t)iov->iov_base;
+            uint64_t iov_len = iov->iov_len;
+            if (iov_base < state->base_addr) {
+                buffer_valid = 0;
+            } else {
+                uint64_t offset = iov_base - state->base_addr;
+                if (offset >= state->mem_size) {
+                    buffer_valid = 0;
+                } else if (offset > UINT64_MAX - iov_len) {
+                    buffer_valid = 0;
+                } else if (offset + iov_len > state->mem_size) {
+                    buffer_valid = 0;
+                }
+            }
+            if (real_fd >= 0 && buffer_valid) {
+                ssize_t n = read(real_fd, (void*)(state->memory + (iov_base - state->base_addr)), iov_len);
                 if (n < 0) n = -errno;
                 state->x[0] = n;
             } else {
-                state->x[0] = -EBADF;
+                state->x[0] = buffer_valid ? -EBADF : -EFAULT;
             }
             break;
         }
@@ -1239,16 +1297,28 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
         case 20:  // writev
         {
             int real_fd = get_real_fd(state->x[0]);
-            if (real_fd >= 0) {
-                // Упрощенная реализация - записываем только первый элемент iovec
-                struct iovec* iov = (struct iovec*)(state->memory + (state->x[1] - state->base_addr));
-                ssize_t n = write(real_fd, 
-                                 (void*)(state->memory + ((uint64_t)iov->iov_base - state->base_addr)), 
-                                 iov->iov_len);
+            struct iovec* iov = (struct iovec*)(state->memory + (state->x[1] - state->base_addr));
+            int buffer_valid = 1;
+            uint64_t iov_base = (uint64_t)iov->iov_base;
+            uint64_t iov_len = iov->iov_len;
+            if (iov_base < state->base_addr) {
+                buffer_valid = 0;
+            } else {
+                uint64_t offset = iov_base - state->base_addr;
+                if (offset >= state->mem_size) {
+                    buffer_valid = 0;
+                } else if (offset > UINT64_MAX - iov_len) {
+                    buffer_valid = 0;
+                } else if (offset + iov_len > state->mem_size) {
+                    buffer_valid = 0;
+                }
+            }
+            if (real_fd >= 0 && buffer_valid) {
+                ssize_t n = write(real_fd, (void*)(state->memory + (iov_base - state->base_addr)), iov_len);
                 if (n < 0) n = -errno;
                 state->x[0] = n;
             } else {
-                state->x[0] = -EBADF;
+                state->x[0] = buffer_valid ? -EBADF : -EFAULT;
             }
             break;
         }
