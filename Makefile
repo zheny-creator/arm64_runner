@@ -147,11 +147,12 @@ deb-noupdate: all-noupdate
 	@dpkg-deb --build deb_dist
 	@echo "Готово: deb_dist.deb"
 
+# Автоматизация архивации исходников для RPM
 SOURCE_ARCHIVE = arm64-runner-1.0.tar.gz
-SOURCE_DIR = проектик
+SOURCE_DIR = .
 
 $(SOURCE_ARCHIVE):
-	tar czf $(SOURCE_ARCHIVE) --transform='s,^$(SOURCE_DIR),arm64-runner-1.0,' $(SOURCE_DIR)
+	tar czf $(SOURCE_ARCHIVE) --transform='s,^.,arm64-runner-1.0,' $(SOURCE_DIR)
 
 rpm-prep: $(SOURCE_ARCHIVE)
 	mkdir -p /home/t/rpmbuild/SOURCES/
