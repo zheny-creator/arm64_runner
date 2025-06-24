@@ -152,7 +152,12 @@ SOURCE_ARCHIVE = arm64-runner-1.0.tar.gz
 SOURCE_DIR = .
 
 $(SOURCE_ARCHIVE):
-	tar czf $(SOURCE_ARCHIVE) --transform='s,^.,arm64-runner-1.0,' $(SOURCE_DIR)
+	@rm -rf arm64-runner-1.0
+	mkdir -p arm64-runner-1.0
+	cp -r src modules include Makefile README.md docs LICENSE MPL-2.0.txt arm64-runner.spec arm64-runner-1.0/
+	if [ -d patches ]; then cp -r patches arm64-runner-1.0/; fi
+	tar czf $(SOURCE_ARCHIVE) arm64-runner-1.0
+	rm -rf arm64-runner-1.0
 
 rpm-prep: $(SOURCE_ARCHIVE)
 	mkdir -p /home/t/rpmbuild/SOURCES/
