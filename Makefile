@@ -12,6 +12,7 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -O2 -g -Iinclude -ldl
 LDFLAGS = -lpthread
+LDLIBS += -lcurl
 
 # Основные цели
 TARGETS = arm64_runner livepatch_example security_patch_example livepatch_security_demo
@@ -23,7 +24,7 @@ EXAMPLE_OBJS = examples/livepatch_example.o
 SECURITY_OBJS = examples/security_patch_example.o
 LIVEPATCH_SECURITY_OBJS = examples/livepatch_security_demo.o
 
-SRC = src/arm64_runner_rc2.c modules/livepatch.c modules/update_module.c include/update_module.h
+SRC = src/arm64_runner_rc2.c modules/livepatch.c modules/update_module.c
 SRC_NOUPDATE = src/arm64_runner_rc2.c modules/livepatch.c
 BIN = arm64_runner_rc2
 
@@ -32,7 +33,7 @@ all: $(BIN)
 
 # Компиляция ARM64 Runner
 arm64_runner: $(RUNNER_OBJS) $(LIVEPATCH_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # Компиляция примера
 livepatch_example: $(EXAMPLE_OBJS) $(LIVEPATCH_OBJS)
@@ -150,7 +151,7 @@ rpm: clean all
 	@echo "Готово: rpm_dist/RPMS/$(shell uname -m)/arm64-runner-1.0-0.rc2.$(shell uname -m).rpm"
 
 $(BIN): $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS)
 
 all-noupdate:
 	$(CC) $(CFLAGS) $(SRC_NOUPDATE) -o $(BIN) $(LDFLAGS)

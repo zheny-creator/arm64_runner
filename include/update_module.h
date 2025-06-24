@@ -16,6 +16,7 @@ typedef struct {
     char distro[64];
     char url[256];
     char filename[128];
+    int install_type; // 1 - deb, 2 - rpm, 3 - pkg.tar.zst
     int dry_run;
 } UpdateParams;
 
