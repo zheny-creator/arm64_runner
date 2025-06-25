@@ -183,6 +183,7 @@ char* strndup(const char* s, size_t n) {
 #endif
 
 int update_download(const UpdateParams* params) {
+    printf("[Update][DEBUG] Downloading from URL: %s\n", params->url);
     CURL* curl = curl_easy_init();
     if (!curl) return 1;
 
@@ -196,10 +197,21 @@ int update_download(const UpdateParams* params) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL); // стандартная запись
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, f);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "arm64_runner");
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 
     CURLcode res = curl_easy_perform(curl);
     fclose(f);
     curl_easy_cleanup(curl);
+
+    printf("[Update][DEBUG] curl_easy_perform result: %d\n", res);
+    if (res != CURLE_OK) {
+        printf("[Update][DEBUG] curl error: %s\n", curl_easy_strerror(res));
+    }
+    // Выводим размер скачанного файла
+    struct stat st;
+    if (stat(params->filename, &st) == 0) {
+        printf("[Update][DEBUG] Downloaded file size: %ld bytes\n", (long)st.st_size);
+    }
 
     return (res == CURLE_OK) ? 0 : 1;
 }
