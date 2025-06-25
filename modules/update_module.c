@@ -7,6 +7,8 @@
 #include <sys/utsname.h>
 #include <curl/curl.h>
 #include <stdint.h>
+#include <cjson/cJSON.h>
+#define RUNNER_VERSION "1.0"
 
 // --- Структуры и таблицы ---
 /*
@@ -39,19 +41,11 @@ static int file_exists(const char *filename) {
     return (stat(filename, &buffer) == 0);
 }
 
-// Проверка наличия curl или wget
-static const char* get_downloader() {
-    if (system("which curl > /dev/null 2>&1") == 0) return "curl";
-    if (system("which wget > /dev/null 2>&1") == 0) return "wget";
-    return NULL;
-}
-
-// Проверка наличия файла по URL (HEAD-запрос)
-static int url_exists(const char* url) {
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "curl -sfI '%s' > /dev/null", url);
-    int res = system(cmd);
-    return res == 0;
+// Проверка наличия команды в системе
+static int has_cmd(const char* cmd) {
+    char buf[256];
+    snprintf(buf, sizeof(buf), "which %s > /dev/null 2>&1", cmd);
+    return system(buf) == 0;
 }
 
 // Получение тега последнего релиза с GitHub
@@ -146,24 +140,6 @@ void update_detect_distro(UpdateParams* params) {
 }
 
 void update_get_url(UpdateParams* params) {
-    struct utsname uts;
-    char arch[32] = "unknown";
-    if (uname(&uts) == 0) {
-        if (strstr(uts.machine, "aarch64")) strcpy(arch, "arm64");
-        else if (strstr(uts.machine, "x86_64")) strcpy(arch, "amd64");
-        else strncpy(arch, uts.machine, sizeof(arch)-1);
-    }
-    // Проверка distro
-    if (params->distro[0] == 0) {
-        printf("[Update] Не удалось определить дистрибутив!\n");
-        params->url[0] = 0;
-        params->filename[0] = 0;
-        params->install_type = 0;
-        return;
-    }
-    const char* formats[] = {"deb", "rpm", "pkg.tar.zst"};
-    const char* install_ext = NULL;
-    char found_name[128] = "", found_url[512] = "";
     char tag[64] = "latest";
     if (get_latest_release_tag(tag, sizeof(tag)) != 0 || strlen(tag) == 0) {
         printf("[Update] Не удалось получить тег последнего релиза!\n");
@@ -172,37 +148,26 @@ void update_get_url(UpdateParams* params) {
         params->install_type = 0;
         return;
     }
-    for (int i = 0; i < 3; ++i) {
-        char fname[128], furl[512];
-        if (strlen(params->distro) == 0 || strlen(arch) == 0) continue;
-        snprintf(fname, sizeof(fname), "Arm64_Runner-%s-%s.%s", params->distro, arch, formats[i]);
-        fname[sizeof(fname)-1] = '\0';
-        snprintf(furl, sizeof(furl), "https://github.com/zheny-creator/arm64_runner/releases/download/%s/%s", tag, fname);
-        furl[sizeof(furl)-1] = '\0';
-        if (url_exists(furl)) {
-            strncpy(found_name, fname, sizeof(found_name));
-            found_name[sizeof(found_name)-1] = '\0';
-            strncpy(found_url, furl, sizeof(found_url));
-            found_url[sizeof(found_url)-1] = '\0';
-            install_ext = formats[i];
-            break;
-        }
-    }
-    if (install_ext) {
-        strncpy(params->filename, found_name, sizeof(params->filename));
-        params->filename[sizeof(params->filename)-1] = '\0';
-        strncpy(params->url, found_url, sizeof(params->url));
-        params->url[sizeof(params->url)-1] = '\0';
-        if (strcmp(install_ext, "deb") == 0) params->install_type = 1;
-        else if (strcmp(install_ext, "rpm") == 0) params->install_type = 2;
-        else if (strcmp(install_ext, "pkg.tar.zst") == 0) params->install_type = 3;
-        else params->install_type = 0;
+
+    const char* ext = NULL;
+    if (has_cmd("dpkg")) {
+        ext = "deb";
+        params->install_type = 1;
+    } else if (has_cmd("rpm")) {
+        ext = "rpm";
+        params->install_type = 2;
     } else {
-        printf("[Update] Не найден подходящий пакет для вашей системы!\n");
+        printf("[Update] Не найден подходящий пакетный менеджер (dpkg/rpm)!\n");
         params->url[0] = 0;
         params->filename[0] = 0;
         params->install_type = 0;
+        return;
     }
+
+    snprintf(params->filename, sizeof(params->filename), "Arm64_Runner.%s", ext);
+    snprintf(params->url, sizeof(params->url),
+        "https://github.com/zheny-creator/arm64_runner/releases/download/%s/%s",
+        tag, params->filename);
 }
 
 #ifndef _GNU_SOURCE
@@ -218,60 +183,25 @@ char* strndup(const char* s, size_t n) {
 #endif
 
 int update_download(const UpdateParams* params) {
-  CURL* curl = curl_easy_init();
-  if (!curl) return 1;
+    CURL* curl = curl_easy_init();
+    if (!curl) return 1;
 
-  char api_url[512];
-  snprintf(api_url, sizeof(api_url),
-           "https://api.github.com/repos/zheny-creator/arm64_runner/contents/%s?ref=%s",
-           params->filename, "main");
+    FILE* f = fopen(params->filename, "wb");
+    if (!f) {
+        curl_easy_cleanup(curl);
+        return 1;
+    }
 
-  struct curl_slist* headers = NULL;
-  headers = curl_slist_append(headers, "Accept: application/vnd.github+json");
-  headers = curl_slist_append(headers, "User-Agent: arm64_runner");
-  // headers = curl_slist_append(headers, "Authorization: Bearer <токен>");
+    curl_easy_setopt(curl, CURLOPT_URL, params->url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL); // стандартная запись
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, f);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "arm64_runner");
 
-  struct MemoryStruct chunk = {.memory = malloc(1), .size = 0};
-
-  curl_easy_setopt(curl, CURLOPT_URL, api_url);
-  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
-
-  CURLcode res = curl_easy_perform(curl);
-  curl_easy_cleanup(curl);
-  curl_slist_free_all(headers);
-
-  if (res != CURLE_OK) {
-    free(chunk.memory);
-    return 1;
-  }
-
-  char* content_field = strstr(chunk.memory, "\"content\":\"");
-  if (!content_field) {
-    free(chunk.memory);
-    return 1;
-  }
-  content_field += strlen("\"content\":\"");
-  char* end = strchr(content_field, '"');
-  if (!end) {
-    free(chunk.memory);
-    return 1;
-  }
-  char* base64_data = strndup(content_field, end - content_field);
-  for (char* p = base64_data; *p; ++p)
-    if (*p == '\n') *p = '\0';
-  unsigned char decoded[65536];
-  size_t decoded_len = 0;
-  base64_decode(base64_data, decoded, &decoded_len);
-  FILE* f = fopen(params->filename, "wb");
-  if (f) {
-    fwrite(decoded, 1, decoded_len, f);
+    CURLcode res = curl_easy_perform(curl);
     fclose(f);
-  }
-  free(base64_data);
-  free(chunk.memory);
-  return 0;
+    curl_easy_cleanup(curl);
+
+    return (res == CURLE_OK) ? 0 : 1;
 }
 
 int update_verify(const UpdateParams* params) {
@@ -281,10 +211,6 @@ int update_verify(const UpdateParams* params) {
     }
     struct stat st;
     stat(params->filename, &st);
-    if (st.st_size < 1024) {
-        printf("[Update] Файл слишком мал, возможно повреждён!\n");
-        return 0;
-    }
     printf("[Update] Файл успешно скачан: %s (%ld bytes)\n", params->filename, (long)st.st_size);
     return 1;
 }
@@ -318,13 +244,25 @@ int run_update() {
         return 1;
     }
     update_get_url(&params);
-    if (params.url[0] == 0 || params.filename[0] == 0 || params.install_type == 0) {
-        printf("[Update] Не удалось определить ссылку или тип пакета для обновления.\n");
+    if (params.filename[0] == 0 || params.install_type == 0) {
+        printf("[Update] Не удалось определить имя файла или тип пакета для обновления.\n");
         return 1;
     }
+    char latest_tag[64] = {0};
+    if (get_latest_release_tag(latest_tag, sizeof(latest_tag)) != 0) {
+        printf("[Update] Не удалось получить тег последнего релиза!\n");
+        return 1;
+    }
+    printf("[Update] Текущая версия: %s, последняя: %s\n", RUNNER_VERSION, latest_tag);
+    if (strcmp(RUNNER_VERSION, latest_tag) == 0) {
+        printf("[Update] У вас уже последняя версия.\n");
+        return 0;
+    }
+    snprintf(params.url, sizeof(params.url),
+        "https://github.com/zheny-creator/arm64_runner/releases/download/%s/%s",
+        latest_tag, params.filename);
     printf("[Update] Distro: %s\n", params.distro);
     printf("[Update] URL: %s\n", params.url);
-    // Получить имя файла из url
     const char* slash = strrchr(params.url, '/');
     if (slash) strncpy(params.filename, slash+1, sizeof(params.filename));
     else strncpy(params.filename, params.url, sizeof(params.filename));
