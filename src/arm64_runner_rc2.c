@@ -955,6 +955,70 @@ void interpret_arm64(Arm64State* state) {
                 }
                 break;
             }
+            case 110:  // getppid
+                state->x[0] = getppid();
+                break;
+            case 174:  // getuid
+                state->x[0] = getuid();
+                break;
+            case 175:  // geteuid
+                state->x[0] = geteuid();
+                break;
+            case 176:  // getgid
+                state->x[0] = getgid();
+                break;
+            case 177:  // getegid
+                state->x[0] = getegid();
+                break;
+            case 117:  // getresuid
+            {
+                uid_t r, e, s;
+                int res = getresuid(&r, &e, &s);
+                if (res == 0) {
+                    state->x[0] = r;
+                    state->x[1] = e;
+                    state->x[2] = s;
+                } else {
+                    state->x[0] = -errno;
+                }
+                break;
+            }
+            case 120:  // getresgid
+            {
+                gid_t r, e, s;
+                int res = getresgid(&r, &e, &s);
+                if (res == 0) {
+                    state->x[0] = r;
+                    state->x[1] = e;
+                    state->x[2] = s;
+                } else {
+                    state->x[0] = -errno;
+                }
+                break;
+            }
+            case 160:  // uname
+            {
+                struct utsname* uts = (struct utsname*)(state->memory + (state->x[0] - state->base_addr));
+                int res = uname(uts);
+                state->x[0] = res;
+                break;
+            }
+            case 169:  // gettimeofday
+            {
+                struct timeval* tv = (struct timeval*)(state->memory + (state->x[0] - state->base_addr));
+                struct timezone* tz = NULL;
+                if (state->x[1]) tz = (struct timezone*)(state->memory + (state->x[1] - state->base_addr));
+                int res = gettimeofday(tv, tz);
+                state->x[0] = res;
+                break;
+            }
+            case 153:  // times
+            {
+                struct tms* tmsbuf = (struct tms*)(state->memory + (state->x[0] - state->base_addr));
+                clock_t res = times(tmsbuf);
+                state->x[0] = res;
+                break;
+            }
             default: {
                 int ascii_count = 0;
                 // Проверяем, не лежит ли по адресу PC-4 ASCII-строка (printable)
