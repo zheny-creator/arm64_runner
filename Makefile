@@ -19,22 +19,22 @@ TARGETS = arm64_runner livepatch_example security_patch_example livepatch_securi
 
 # Объектные файлы
 LIVEPATCH_OBJS = src/livepatch.o
-RUNNER_OBJS = src/arm64_runner_rc2.o
+RUNNER_OBJS = src/arm64_runner.o
 EXAMPLE_OBJS = examples/livepatch_example.o
 SECURITY_OBJS = examples/security_patch_example.o
 LIVEPATCH_SECURITY_OBJS = examples/livepatch_security_demo.o
 
-SRC = src/arm64_runner_rc2.c modules/livepatch.c modules/update_module.c
-SRC_NOUPDATE = src/arm64_runner_rc2.c modules/livepatch.c
-BIN = arm64_runner_rc2
+SRC = src/arm64_runner.c modules/livepatch.c modules/update_module.c
+SRC_NOUPDATE = src/arm64_runner.c modules/livepatch.c
+BIN = arm64_runner
 
 # Правила по умолчанию
 all: $(BIN)
-	cp arm64_runner_rc2 arm64_runner
+	cp arm64_runner arm64_runner
 
 # Компиляция ARM64 Runner
-arm64_runner: $(RUNNER_OBJS) $(LIVEPATCH_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
+arm64_runner: src/arm64_runner.c modules/livepatch.o
+	$(CC) $(CFLAGS) -Iinclude src/arm64_runner.c modules/livepatch.o -o arm64_runner
 
 # Компиляция примера
 livepatch_example: $(EXAMPLE_OBJS) $(LIVEPATCH_OBJS)
@@ -54,6 +54,9 @@ src/%.o: src/%.c
 
 examples/%.o: examples/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+modules/livepatch.o: modules/livepatch.c modules/livepatch.h
+	$(CC) $(CFLAGS) -Iinclude -c modules/livepatch.c -o modules/livepatch.o
 
 # Очистка
 clean:
@@ -174,6 +177,6 @@ $(BIN): $(SRC)
 
 all-noupdate:
 	$(CC) $(CFLAGS) -DNO_UPDATE_MODULE $(SRC_NOUPDATE) -o $(BIN) $(LDFLAGS)
-	cp arm64_runner_rc2 arm64_runner
+	cp arm64_runner arm64_runner
 
 .PHONY: all clean install test demo security-demo livepatch-security-demo create-patches create-security-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 

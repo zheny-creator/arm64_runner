@@ -18,7 +18,7 @@ The Livepatch system allows you to apply patches to the ARM64 interpreter code a
 ```
 project_root/
 ├── src/                    - Source code
-│   ├── arm64_runner_rc2.c  - Main ARM64 interpreter
+│   ├── arm64_runner.c  - Main ARM64 interpreter
 │   └── livepatch.c         - Livepatch system
 ├── include/                - Header files
 │   └── livepatch.h         - Livepatch header
