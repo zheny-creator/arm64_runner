@@ -15,7 +15,7 @@ LDFLAGS = -lpthread
 LDLIBS += -lcurl
 
 # Основные цели
-TARGETS = arm64_runner livepatch_example security_patch_example livepatch_security_demo
+TARGETS = arm64_runner livepatch_example security_patch_example livepatch_security_demo update_module livepatch
 
 # Объектные файлы
 LIVEPATCH_OBJS = src/livepatch.o
@@ -29,8 +29,7 @@ SRC_NOUPDATE = src/arm64_runner.c modules/livepatch.c
 BIN = arm64_runner
 
 # Правила по умолчанию
-all: $(BIN)
-	cp arm64_runner arm64_runner
+all: arm64_runner livepatch update_module
 
 # Компиляция ARM64 Runner
 arm64_runner: src/arm64_runner.c modules/livepatch.o
@@ -55,8 +54,14 @@ src/%.o: src/%.c
 examples/%.o: examples/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-modules/livepatch.o: modules/livepatch.c modules/livepatch.h
+modules/livepatch.o: modules/livepatch.c include/livepatch.h
 	$(CC) $(CFLAGS) -Iinclude -c modules/livepatch.c -o modules/livepatch.o
+
+modules/update_module.o: modules/update_module.c include/update_module.h
+	$(CC) $(CFLAGS) -Iinclude -c modules/update_module.c -o modules/update_module.o
+
+update_module: src/update_main.c modules/update_module.o
+	$(CC) $(CFLAGS) -Iinclude src/update_main.c modules/update_module.o -o update_module $(LDFLAGS) $(LDLIBS)
 
 # Очистка
 clean:
@@ -177,6 +182,8 @@ $(BIN): $(SRC)
 
 all-noupdate:
 	$(CC) $(CFLAGS) -DNO_UPDATE_MODULE $(SRC_NOUPDATE) -o $(BIN) $(LDFLAGS)
-	cp arm64_runner arm64_runner
+
+livepatch: examples/livepatch_example.c modules/livepatch.o
+	$(CC) $(CFLAGS) -Iinclude examples/livepatch_example.c modules/livepatch.o -o livepatch $(LDFLAGS)
 
 .PHONY: all clean install test demo security-demo livepatch-security-demo create-patches create-security-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 

@@ -955,67 +955,51 @@ void interpret_arm64(Arm64State* state) {
                 }
                 break;
             }
-            case 110:  // getppid
-                state->x[0] = getppid();
-                break;
-            case 174:  // getuid
-                state->x[0] = getuid();
-                break;
-            case 175:  // geteuid
-                state->x[0] = geteuid();
-                break;
-            case 176:  // getgid
-                state->x[0] = getgid();
-                break;
-            case 177:  // getegid
-                state->x[0] = getegid();
-                break;
-            case 117:  // getresuid
+            case 29:  // shmget
             {
-                uid_t r, e, s;
-                int res = getresuid(&r, &e, &s);
-                if (res == 0) {
-                    state->x[0] = r;
-                    state->x[1] = e;
-                    state->x[2] = s;
-                } else {
+                // Реализация через shm_open
+                const char* name = (const char*)(state->memory + (state->x[0] - state->base_addr));
+                int oflag = state->x[1];
+                mode_t mode = state->x[2];
+                int fd = shm_open(name, oflag, mode);
+                if (fd < 0) {
                     state->x[0] = -errno;
+                } else {
+                    state->x[0] = register_fd(fd);
                 }
                 break;
             }
-            case 120:  // getresgid
+            case 30:  // shmat
             {
-                gid_t r, e, s;
-                int res = getresgid(&r, &e, &s);
-                if (res == 0) {
-                    state->x[0] = r;
-                    state->x[1] = e;
-                    state->x[2] = s;
-                } else {
+                // Реализация через mmap
+                int fd = get_real_fd(state->x[0]);
+                size_t length = state->x[1];
+                int prot = state->x[2];
+                int flags = state->x[3];
+                off_t offset = state->x[4];
+                void* addr = mmap(NULL, length, prot, flags, fd, offset);
+                if (addr == MAP_FAILED) {
                     state->x[0] = -errno;
+                } else {
+                    state->x[0] = (uint64_t)addr;
                 }
                 break;
             }
-            case 160:  // uname
+            case 31:  // shmctl
             {
-                struct utsname* uts = (struct utsname*)(state->memory + (state->x[0] - state->base_addr));
-                int res = uname(uts);
+                // Реализация через shm_unlink
+                const char* name = (const char*)(state->memory + (state->x[0] - state->base_addr));
+                int res = shm_unlink(name);
+                if (res < 0) res = -errno;
                 state->x[0] = res;
                 break;
             }
-            case 169:  // gettimeofday
+            case 36:  // getitimer
             {
-                struct timeval* tv = (struct timeval*)(state->memory + (state->x[0] - state->base_addr));
-                struct timezone* tz = NULL;
-                if (state->x[1]) tz = (struct timezone*)(state->memory + (state->x[1] - state->base_addr));
-                int res = gettimeofday(tv, tz);
-                state->x[0] = res;
-                break;
-            }
-            case 153:  // times
-            {
-                struct tms* tmsbuf = (struct tms*)(state->memory + (state->x[0] - state->base_addr));
-                clock_t res = times(tmsbuf);
+                int which = state->x[0];
+                struct itimerval* val = (struct itimerval*)(state->memory + (state->x[1] - state->base_addr));
+                int res = getitimer(which, val);
+                if (res < 0) res = -errno;
                 state->x[0] = res;
                 break;
             }
@@ -1467,77 +1451,41 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
         
         case 29:  // shmget
         {
-            // Упрощенная реализация shmget
-            state->x[0] = -ENOSYS;
+            // Реализация через shm_open
+            const char* name = (const char*)(state->memory + (state->x[0] - state->base_addr));
+            int oflag = state->x[1];
+            mode_t mode = state->x[2];
+            int fd = shm_open(name, oflag, mode);
+            if (fd < 0) {
+                state->x[0] = -errno;
+            } else {
+                state->x[0] = register_fd(fd);
+            }
             break;
         }
         
         case 30:  // shmat
         {
-            // Упрощенная реализация shmat
-            state->x[0] = -ENOSYS;
+            // Реализация через mmap
+            int fd = get_real_fd(state->x[0]);
+            size_t length = state->x[1];
+            int prot = state->x[2];
+            int flags = state->x[3];
+            off_t offset = state->x[4];
+            void* addr = mmap(NULL, length, prot, flags, fd, offset);
+            if (addr == MAP_FAILED) {
+                state->x[0] = -errno;
+            } else {
+                state->x[0] = (uint64_t)addr;
+            }
             break;
         }
         
         case 31:  // shmctl
         {
-            // Упрощенная реализация shmctl
-            state->x[0] = -ENOSYS;
-            break;
-        }
-        
-        case 32:  // dup
-        {
-            int real_fd = get_real_fd(state->x[0]);
-            if (real_fd >= 0) {
-                int new_fd = dup(real_fd);
-                if (new_fd >= 0) {
-                    int guest_fd = register_fd(new_fd);
-                    if (guest_fd < 0) {
-                        close(new_fd);
-                        state->x[0] = -EMFILE;
-                    } else {
-                        state->x[0] = guest_fd;
-                    }
-                } else {
-                    state->x[0] = -errno;
-                }
-            } else {
-                state->x[0] = -EBADF;
-            }
-            break;
-        }
-        
-        case 33:  // dup2
-        {
-            int old_fd = get_real_fd(state->x[0]);
-            int new_fd = state->x[1];
-            
-            if (old_fd >= 0) {
-                int res = dup2(old_fd, new_fd);
-                if (res >= 0) {
-                    state->x[0] = new_fd;
-                } else {
-                    state->x[0] = -errno;
-                }
-            } else {
-                state->x[0] = -EBADF;
-            }
-            break;
-        }
-        
-        case 34:  // pause
-        {
-            // Упрощенная реализация pause
-            state->x[0] = -EINTR;
-            break;
-        }
-        
-        case 35:  // nanosleep
-        {
-            struct timespec* req = (struct timespec*)(state->memory + (state->x[0] - state->base_addr));
-            struct timespec* rem = (struct timespec*)(state->memory + (state->x[1] - state->base_addr));
-            int res = nanosleep(req, rem);
+            // Реализация через shm_unlink
+            const char* name = (const char*)(state->memory + (state->x[0] - state->base_addr));
+            int res = shm_unlink(name);
             if (res < 0) res = -errno;
             state->x[0] = res;
             break;
@@ -1545,8 +1493,11 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
         
         case 36:  // getitimer
         {
-            // Упрощенная реализация getitimer
-            state->x[0] = -ENOSYS;
+            int which = state->x[0];
+            struct itimerval* val = (struct itimerval*)(state->memory + (state->x[1] - state->base_addr));
+            int res = getitimer(which, val);
+            if (res < 0) res = -errno;
+            state->x[0] = res;
             break;
         }
         
