@@ -1,0 +1,56 @@
+--- arm64-runner.spec.orig	2024-06-13 12:00:00.000000000 +0300
++++ arm64-runner.spec	2024-06-13 12:10:00.000000000 +0300
+@@ -1,6 +1,18 @@
++%def_disable snapshot
++
++%define _libexecdir %_prefix/libexec
++
++%def_enable tests
++%def_disable check
++
+ %define debug_package %{nil}
+ 
+ Name:           arm64-runner
+ Version:        1.0
+ Release:        1%{?dist}
+ Summary:        ARM64 Runner — эмулятор ARM64 ELF бинарников с поддержкой livepatch
+ 
+ License:        GPLv3
+ URL:            https://example.com/arm64-runner
+ Source0:        %{name}-%{version}.tar.gz
+-BuildRequires:  gcc, make
+-Requires:       glibc
++BuildRequires(pre): rpm-macros-meson rpm-build-xdg
++BuildRequires:  gcc, make
++Requires:       glibc
++
+@@ -8,7 +20,8 @@
+ %description
+ ARM64 Runner 1.0 — эмулятор ARM64 ELF бинарников с поддержкой livepatch.
++
++# ALT Linux adaptation patch applied
+ 
+ %prep
+ %setup -q
+@@ -16,10 +29,18 @@
+ %build
+-make arm64_runner
++%meson
++%meson_build
+ 
+ %install
+-rm -rf %{buildroot}
+-install -D -m 0755 arm64_runner %{buildroot}/usr/bin/arm64_runner
+-install -D -m 0644 docs/README.md %{buildroot}/usr/share/doc/arm64-runner/README
++%meson_install
++install -D -m 0644 docs/README.md %{buildroot}/usr/share/doc/arm64-runner/README
+ 
+ %files
+-/usr/bin/arm64_runner
+-/usr/share/doc/arm64-runner/README
++%_bindir/arm64_runner
++%_docdir/%name/README
+ 
+ %changelog
+ * Thu Jun 13 2024 Evgeny Borodin <noreply@example.com> - 1.0-1
+ - Initial RPM release 
