@@ -23,10 +23,20 @@ make arm64_runner
 %install
 rm -rf %{buildroot}
 install -D -m 0755 arm64_runner %{buildroot}/usr/bin/arm64_runner
+install -D -m 0755 update_module %{buildroot}/usr/bin/update_module
+install -D -m 0755 livepatch %{buildroot}/usr/bin/livepatch
+install -D -m 0755 examples/livepatch_example %{buildroot}/usr/bin/livepatch_example
+install -D -m 0755 examples/security_patch_example %{buildroot}/usr/bin/security_patch_example
+install -D -m 0755 examples/livepatch_security_demo %{buildroot}/usr/bin/livepatch_security_demo
 install -D -m 0644 docs/README.md %{buildroot}/usr/share/doc/arm64-runner/README
 
 %files
 /usr/bin/arm64_runner
+/usr/bin/update_module
+/usr/bin/livepatch
+/usr/bin/livepatch_example
+/usr/bin/security_patch_example
+/usr/bin/livepatch_security_demo
 /usr/share/doc/arm64-runner/README
 
 %changelog
