@@ -141,9 +141,6 @@ deb: all
 	@cp arm64_runner deb_dist/usr/bin/arm64_runner
 	@cp update_module deb_dist/usr/bin/update_module
 	@cp livepatch deb_dist/usr/bin/livepatch
-	@cp examples/livepatch_example deb_dist/usr/bin/livepatch_example
-	@cp examples/security_patch_example deb_dist/usr/bin/security_patch_example
-	@cp examples/livepatch_security_demo deb_dist/usr/bin/livepatch_security_demo
 	@cp docs/README.md deb_dist/usr/share/doc/arm64-runner/README
 	@echo "Package: arm64-runner\nVersion: 1.0\nSection: utils\nPriority: optional\nArchitecture: amd64\nMaintainer: Женя Бородин <noreply@example.com>\nDescription: ARM64 Runner 1.0 — эмулятор ARM64 ELF бинарников с поддержкой livepatch.\n" > deb_dist/DEBIAN/control
 	@echo "GPLv3" > deb_dist/usr/share/doc/arm64-runner/copyright

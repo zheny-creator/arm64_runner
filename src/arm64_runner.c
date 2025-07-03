@@ -904,32 +904,6 @@ void interpret_arm64(Arm64State* state) {
                 }
                 break;
             }
-            case 0x22: {  // ADD (shifted register)
-                // Формат: ADD Xd, Xn, Xm, <shift> #imm6
-                // instr[31:21]=опкод, [20:16]=Rm, [15:10]=imm6, [9:5]=Rn, [4:0]=Rd
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint8_t rm = (instr >> 16) & 0x1F;
-                uint8_t shift = (instr >> 22) & 0x3; // 0=LSL, 1=LSR, 2=ASR
-                uint8_t imm6 = (instr >> 10) & 0x3F;
-                uint64_t op2 = state->x[rm];
-                switch (shift) {
-                    case 0: // LSL
-                        op2 <<= imm6;
-                        break;
-                    case 1: // LSR
-                        op2 >>= imm6;
-                        break;
-                    case 2: // ASR
-                        op2 = (uint64_t)(((int64_t)op2) >> imm6);
-                        break;
-                }
-                uint64_t op1 = state->x[rn];
-                uint64_t result = op1 + op2;
-                state->x[rd] = result;
-                set_nzcv(state, result, op1, op2, 0, 1, 1);
-                break;
-            }
             case 0x24: {  // ADD (immediate, 12-bit)
                 // Формат: ADD Xd, Xn, #imm12
                 // instr[31:22]=опкод, [21:10]=imm12, [9:5]=Rn, [4:0]=Rd
@@ -955,12 +929,6 @@ void interpret_arm64(Arm64State* state) {
                 }
                 break;
             }
-            case 37:  // alarm
-            {
-                // Упрощенная реализация alarm
-                state->x[0] = 0;
-                break;
-            }
             case 38:  // setitimer
             {
                 // Упрощенная реализация setitimer
@@ -970,18 +938,6 @@ void interpret_arm64(Arm64State* state) {
             case 39:  // getpid
             {
                 state->x[0] = getpid();
-                break;
-            }
-            case 40:  // sendfile
-            {
-                // Упрощенная реализация sendfile
-                state->x[0] = -ENOSYS;
-                break;
-            }
-            case 41:  // socket
-            {
-                // Упрощенная реализация socket
-                state->x[0] = -ENOSYS;
                 break;
             }
             case 43:  // accept
@@ -999,12 +955,6 @@ void interpret_arm64(Arm64State* state) {
             case 45:  // recvfrom
             {
                 // Упрощенная реализация recvfrom
-                state->x[0] = -ENOSYS;
-                break;
-            }
-            case 46:  // sendmsg
-            {
-                // Упрощенная реализация sendmsg
                 state->x[0] = -ENOSYS;
                 break;
             }
@@ -1026,45 +976,12 @@ void interpret_arm64(Arm64State* state) {
                 state->x[0] = -ENOSYS;
                 break;
             }
-            case 50:  // listen
-            {
-                // Упрощенная реализация listen
-                state->x[0] = -ENOSYS;
-                break;
-            }
             case 51:  // getsockname
             {
                 // Упрощенная реализация getsockname
                 state->x[0] = -ENOSYS;
                 break;
             }
-            case 52:  // getpeername
-            {
-                // Упрощенная реализация getpeername
-                state->x[0] = -ENOSYS;
-                break;
-            }
-            case 53:  // socketpair
-            {
-                // Упрощенная реализация socketpair
-                state->x[0] = -ENOSYS;
-                break;
-            }
-            case 54:  // setsockopt
-            {
-                // Упрощенная реализация setsockopt
-                state->x[0] = -ENOSYS;
-                break;
-            }
-            case 55:  // getsockopt
-            {
-                // Упрощенная реализация getsockopt
-                state->x[0] = -ENOSYS;
-                break;
-            }
-            case 203:  // connect (правильный номер для ARM64)
-                state->x[0] = -ENOSYS;
-                break;
             default: {
                 int ascii_count = 0;
                 // Проверяем, не лежит ли по адресу PC-4 ASCII-строка (printable)
