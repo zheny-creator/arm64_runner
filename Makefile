@@ -32,8 +32,8 @@ BIN = arm64_runner
 all: arm64_runner livepatch update_module
 
 # Компиляция ARM64 Runner
-arm64_runner: src/arm64_runner.c modules/livepatch.o
-	$(CC) $(CFLAGS) -Iinclude src/arm64_runner.c modules/livepatch.o -o arm64_runner
+$(BIN): $(SRC)
+	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS)
 
 # Компиляция примера
 livepatch_example: $(EXAMPLE_OBJS) $(LIVEPATCH_OBJS)
@@ -181,9 +181,6 @@ rpm: all rpm-prep
 
 rpm-noupdate: all-noupdate rpm-prep
 	rpmbuild -bb arm64-runner.spec --define 'buildroot $(CURDIR)/rpm_buildroot' --define 'noupdate 1'
-
-$(BIN): $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS)
 
 all-noupdate:
 	$(CC) $(CFLAGS) -DNO_UPDATE_MODULE $(SRC_NOUPDATE) -o $(BIN) $(LDFLAGS)
