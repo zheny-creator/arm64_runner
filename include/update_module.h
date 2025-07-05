@@ -26,5 +26,6 @@ int update_download(const UpdateParams* params);
 int update_verify(const UpdateParams* params);
 int update_install(const UpdateParams* params);
 int run_update();
+void print_update_help();
 
 #endif // UPDATE_MODULE_H 

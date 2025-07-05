@@ -53,14 +53,41 @@ static int has_cmd(const char* cmd) {
 
 // Глобальный флаг для debug
 int update_debug = 0;
+// Глобальный флаг для RC-режима
+int update_rc_mode = 0;
 
 // Получение тега последнего релиза с GitHub
 static int get_latest_release_tag(char* tag, size_t tag_size) {
     if (update_debug) fprintf(stderr, "[Update][DEBUG] Начинаем get_latest_release_tag\n");
+    if (update_debug) fprintf(stderr, "[Update][DEBUG] RC-режим: %s\n", update_rc_mode ? "включен" : "выключен");
     if (update_debug) fprintf(stderr, "[Update][DEBUG] Используем system для получения тега...\n");
     
     // Используем system вместо popen для избежания проблем с памятью
-    int result = system("curl -s https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest | grep 'tag_name' | cut -d '\"' -f4 > /tmp/latest_tag.txt");
+    const char* api_url;
+    if (update_rc_mode) {
+        // Для RC-версий получаем последний pre-release
+        api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases?per_page=10";
+        if (update_debug) fprintf(stderr, "[Update][DEBUG] Получаем pre-release версии...\n");
+    } else {
+        // Для стабильных версий получаем последний release
+        api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest";
+        if (update_debug) fprintf(stderr, "[Update][DEBUG] Получаем стабильную версию...\n");
+    }
+    
+    char curl_cmd[1024];
+    if (update_rc_mode) {
+        // Для RC: получаем список релизов, фильтруем pre-release, берем первый
+        snprintf(curl_cmd, sizeof(curl_cmd), 
+            "curl -s '%s' | grep -B 10 '\"prerelease\": true' | grep '\"tag_name\"' | head -1 | cut -d '\"' -f4 > /tmp/latest_tag.txt", 
+            api_url);
+    } else {
+        // Для стабильных: получаем latest release
+        snprintf(curl_cmd, sizeof(curl_cmd), 
+            "curl -s '%s' | grep 'tag_name' | cut -d '\"' -f4 > /tmp/latest_tag.txt", 
+            api_url);
+    }
+    
+    int result = system(curl_cmd);
     if (result != 0) {
         if (update_debug) fprintf(stderr, "[Update][DEBUG] system вернул ошибку: %d\n", result);
         return 1;
@@ -290,7 +317,8 @@ int run_update() {
         printf("[Update] Не удалось получить тег последнего релиза!\n");
         return 1;
     }
-    printf("[Update] Текущая версия: %s, последняя: %s\n", RUNNER_VERSION, latest_tag);
+    printf("[Update] Текущая версия: %s, последняя: %s%s\n", 
+           RUNNER_VERSION, latest_tag, update_rc_mode ? " (pre-release)" : "");
     if (strcmp(RUNNER_VERSION, latest_tag) == 0) {
         printf("[Update] У вас уже последняя версия.\n");
         return 0;
@@ -315,6 +343,21 @@ int run_update() {
         printf("[Update] Install failed!\n");
         return 1;
     }
-    printf("[Update] Update complete!\n");
+    printf("[Update] Update complete!%s\n", update_rc_mode ? " (pre-release installed)" : "");
     return 0;
+}
+
+void print_update_help() {
+    printf("ARM64 Runner Update Module\n");
+    printf("Usage: update_module [options]\n");
+    printf("Options:\n");
+    printf("  --debug, -d     Enable debug output\n");
+    printf("  --rc, -r        Install pre-release (RC) version instead of stable\n");
+    printf("  --prerelease    Same as --rc\n");
+    printf("  --help, -h      Show this help\n");
+    printf("\n");
+    printf("Examples:\n");
+    printf("  update_module              # Install latest stable version\n");
+    printf("  update_module --rc         # Install latest pre-release version\n");
+    printf("  update_module --debug --rc # Install RC with debug output\n");
 } 
