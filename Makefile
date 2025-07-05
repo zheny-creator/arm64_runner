@@ -15,43 +15,25 @@ LDFLAGS = -lpthread
 LDLIBS += -lcurl
 
 # Основные цели
-TARGETS = arm64_runner livepatch_example security_patch_example livepatch_security_demo update_module livepatch
+TARGETS = arm64_runner update_module livepatch
 
 # Объектные файлы
 LIVEPATCH_OBJS = src/livepatch.o
 RUNNER_OBJS = src/arm64_runner.o
-EXAMPLE_OBJS = examples/livepatch_example.o
-SECURITY_OBJS = examples/security_patch_example.o
-LIVEPATCH_SECURITY_OBJS = examples/livepatch_security_demo.o
 
 SRC = src/arm64_runner.c modules/livepatch.c modules/update_module.c
 SRC_NOUPDATE = src/arm64_runner.c modules/livepatch.c
 BIN = arm64_runner
 
 # Правила по умолчанию
-all: arm64_runner livepatch update_module
+all: arm64_runner update_module
 
 # Компиляция ARM64 Runner
 $(BIN): $(SRC)
 	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS)
 
-# Компиляция примера
-livepatch_example: $(EXAMPLE_OBJS) $(LIVEPATCH_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
-
-# Компиляция примера безопасности
-security_patch_example: $(SECURITY_OBJS) $(LIVEPATCH_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
-
-# Компиляция демонстрации Livepatch безопасности
-livepatch_security_demo: $(LIVEPATCH_SECURITY_OBJS) $(LIVEPATCH_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
-
 # Компиляция объектных файлов
 src/%.o: src/%.c
-	$(CC) $(CFLAGS) -c $< -o $@
-
-examples/%.o: examples/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 modules/livepatch.o: modules/livepatch.c include/livepatch.h
@@ -66,7 +48,7 @@ update_module: src/update_main.c modules/update_module.o
 # Очистка
 clean:
 	rm -f $(TARGETS)
-	rm -f src/*.o examples/*.o
+	rm -f src/*.o
 	rm -f patches/*.txt patches/*.bin security_patches.txt
 	rm -f $(BIN)
 
@@ -79,31 +61,27 @@ test:
 	@echo "[INFO] No test sources present."
 
 # Демонстрация
-demo: livepatch_example
+demo:
 	./livepatch_example demo
 
 # Демонстрация безопасности
-security-demo: security_patch_example
+security-demo:
 	./security_patch_example demo
 
-# Демонстрация Livepatch безопасности
-livepatch-security-demo: livepatch_security_demo
-	./livepatch_security_demo demo
-
 # Создание файла с патчами
-create-patches: livepatch_example
+create-patches:
 	./livepatch_example create
 
 # Создание патчей безопасности
-create-security-patches: security_patch_example
+create-security-patches:
 	./security_patch_example create
 
 # Загрузка патчей
-load-patches: livepatch_example
+load-patches:
 	./livepatch_example load
 
 # Демонстрация памяти
-memory-demo: livepatch_example
+memory-demo:
 	./livepatch_example memory
 
 # Проверка зависимостей
@@ -123,7 +101,6 @@ help:
 	@echo "  test                   - запустить тесты"
 	@echo "  demo                   - запустить демонстрацию"
 	@echo "  security-demo          - демонстрация безопасности"
-	@echo "  livepatch-security-demo - демонстрация Livepatch безопасности"
 	@echo "  create-patches         - создать файл с патчами"
 	@echo "  create-security-patches - создать патчи безопасности"
 	@echo "  create-livepatch-security - создать патчи Livepatch безопасности"
@@ -132,7 +109,7 @@ help:
 	@echo "  help                   - показать эту справку"
 
 # Создание патчей безопасности
-create-livepatch-security: livepatch_security_demo
+create-livepatch-security:
 	./livepatch_security_demo create
 
 deb: all
@@ -182,7 +159,7 @@ rpm-noupdate: all-noupdate rpm-prep
 all-noupdate:
 	$(CC) $(CFLAGS) -DNO_UPDATE_MODULE $(SRC_NOUPDATE) -o $(BIN) $(LDFLAGS)
 
-livepatch: examples/livepatch_example.c modules/livepatch.o
-	$(CC) $(CFLAGS) -Iinclude examples/livepatch_example.c modules/livepatch.o -o livepatch $(LDFLAGS)
+livepatch: modules/livepatch.o
+	$(CC) $(CFLAGS) -Iinclude modules/livepatch.o -o livepatch $(LDFLAGS)
 
-.PHONY: all clean install test demo security-demo livepatch-security-demo create-patches create-security-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 
+.PHONY: all clean install test demo security-demo create-patches create-security-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 
