@@ -138,7 +138,7 @@ deb-noupdate: all-noupdate
 SOURCE_ARCHIVE = arm64-runner-1.0.tar.gz
 SOURCE_DIR = .
 
-$(SOURCE_ARCHIVE):
+$(SOURCE_ARCHIVE): arm64_runner update_module livepatch
 	@rm -rf arm64-runner-1.0
 	mkdir -p arm64-runner-1.0
 	cp -r src modules include Makefile README.md docs LICENSE MPL-2.0.txt arm64-runner.spec arm64_runner update_module livepatch arm64-runner-1.0/
