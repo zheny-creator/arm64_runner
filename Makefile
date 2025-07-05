@@ -159,7 +159,7 @@ rpm-noupdate: all-noupdate rpm-prep
 all-noupdate:
 	$(CC) $(CFLAGS) -DNO_UPDATE_MODULE $(SRC_NOUPDATE) -o $(BIN) $(LDFLAGS)
 
-livepatch: modules/livepatch.o
-	$(CC) $(CFLAGS) -Iinclude modules/livepatch.o -o livepatch $(LDFLAGS)
+livepatch: src/livepatch_main.c modules/livepatch.o
+	$(CC) $(CFLAGS) -Iinclude src/livepatch_main.c modules/livepatch.o -o livepatch $(LDFLAGS)
 
 .PHONY: all clean install test demo security-demo create-patches create-security-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 
