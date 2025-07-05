@@ -18,7 +18,7 @@ ARM64 Runner 1.0 — эмулятор ARM64 ELF бинарников с подд
 %setup -q
 
 %build
-make arm64_runner
+make
 
 %install
 rm -rf %{buildroot}
