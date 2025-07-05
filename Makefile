@@ -64,17 +64,9 @@ test:
 demo:
 	./livepatch_example demo
 
-# Демонстрация безопасности
-security-demo:
-	./security_patch_example demo
-
 # Создание файла с патчами
 create-patches:
 	./livepatch_example create
-
-# Создание патчей безопасности
-create-security-patches:
-	./security_patch_example create
 
 # Загрузка патчей
 load-patches:
@@ -100,9 +92,7 @@ help:
 	@echo "  clean                  - очистить объектные файлы"
 	@echo "  test                   - запустить тесты"
 	@echo "  demo                   - запустить демонстрацию"
-	@echo "  security-demo          - демонстрация безопасности"
 	@echo "  create-patches         - создать файл с патчами"
-	@echo "  create-security-patches - создать патчи безопасности"
 	@echo "  create-livepatch-security - создать патчи Livepatch безопасности"
 	@echo "  load-patches           - загрузить патчи из файла"
 	@echo "  memory-demo            - демонстрация работы с памятью"
@@ -162,4 +152,4 @@ all-noupdate:
 livepatch: src/livepatch_main.c modules/livepatch.o
 	$(CC) $(CFLAGS) -Iinclude src/livepatch_main.c modules/livepatch.o -o livepatch $(LDFLAGS)
 
-.PHONY: all clean install test demo security-demo create-patches create-security-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 
+.PHONY: all clean install test demo create-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 
