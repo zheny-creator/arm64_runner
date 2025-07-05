@@ -1,5 +1,5 @@
-#include "update_module.h"
 #include <stdio.h>
+#include "update_module.h"
 #include <string.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -8,6 +8,9 @@
 #include <curl/curl.h>
 #include <stdint.h>
 #include <cjson/cJSON.h>
+#define _POSIX_C_SOURCE 200809L
+#include <sys/wait.h>
+#include <getopt.h>
 #define RUNNER_VERSION "1.0"
 
 // --- Структуры и таблицы ---
@@ -48,27 +51,49 @@ static int has_cmd(const char* cmd) {
     return system(buf) == 0;
 }
 
+// Глобальный флаг для debug
+int update_debug = 0;
+
 // Получение тега последнего релиза с GitHub
 static int get_latest_release_tag(char* tag, size_t tag_size) {
-    FILE* f = popen("curl -s https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest | grep 'tag_name' | cut -d '\"' -f4", "r");
+    if (update_debug) fprintf(stderr, "[Update][DEBUG] Начинаем get_latest_release_tag\n");
+    if (update_debug) fprintf(stderr, "[Update][DEBUG] Используем system для получения тега...\n");
+    
+    // Используем system вместо popen для избежания проблем с памятью
+    int result = system("curl -s https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest | grep 'tag_name' | cut -d '\"' -f4 > /tmp/latest_tag.txt");
+    if (result != 0) {
+        if (update_debug) fprintf(stderr, "[Update][DEBUG] system вернул ошибку: %d\n", result);
+        return 1;
+    }
+    
+    // Читаем результат из файла
+    FILE* f = fopen("/tmp/latest_tag.txt", "r");
     if (!f) {
-        fprintf(stderr, "[Update] Не удалось открыть pipe для получения latest release tag!\n");
+        if (update_debug) fprintf(stderr, "[Update][DEBUG] Не удалось открыть /tmp/latest_tag.txt\n");
         return 1;
     }
+    
     if (!fgets(tag, tag_size, f)) {
-        fprintf(stderr, "[Update] Не удалось прочитать тег последнего релиза из pipe!\n");
-        pclose(f);
+        if (update_debug) fprintf(stderr, "[Update][DEBUG] Не удалось прочитать тег из файла\n");
+        fclose(f);
         return 1;
     }
+    
+    fclose(f);
+    unlink("/tmp/latest_tag.txt"); // Удаляем временный файл
+    
+    if (update_debug) fprintf(stderr, "[Update][DEBUG] fgets успешно прочитал: '%s'\n", tag);
     // Удаляем перевод строки, если есть
     size_t len = strlen(tag);
     if (len > 0 && tag[len-1] == '\n') tag[len-1] = 0;
-    pclose(f);
+    if (update_debug) fprintf(stderr, "[Update][DEBUG] После удаления \\n: '%s'\n", tag);
+    
     // Проверяем, что tag не пустой и не содержит пробелов/спецсимволов
     if (strlen(tag) == 0 || strchr(tag, ' ') || strchr(tag, '\t') || strchr(tag, '\n')) {
-        fprintf(stderr, "[Update] Получен некорректный тег релиза: '%s'\n", tag);
+        if (update_debug) fprintf(stderr, "[Update][DEBUG] Получен некорректный тег релиза: '%s'\n", tag);
         return 1;
     }
+    if (update_debug) fprintf(stderr, "[Update][DEBUG] Получен тег релиза: '%s'\n", tag);
     return 0;
 }
 

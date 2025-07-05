@@ -904,6 +904,32 @@ void interpret_arm64(Arm64State* state) {
                 }
                 break;
             }
+            case 0x22: {  // ADD (shifted register)
+                // Формат: ADD Xd, Xn, Xm, <shift> #imm6
+                // instr[31:21]=опкод, [20:16]=Rm, [15:10]=imm6, [9:5]=Rn, [4:0]=Rd
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                uint8_t shift = (instr >> 22) & 0x3; // 0=LSL, 1=LSR, 2=ASR
+                uint8_t imm6 = (instr >> 10) & 0x3F;
+                uint64_t op2 = state->x[rm];
+                switch (shift) {
+                    case 0: // LSL
+                        op2 <<= imm6;
+                        break;
+                    case 1: // LSR
+                        op2 >>= imm6;
+                        break;
+                    case 2: // ASR
+                        op2 = (uint64_t)(((int64_t)op2) >> imm6);
+                        break;
+                }
+                uint64_t op1 = state->x[rn];
+                uint64_t result = op1 + op2;
+                state->x[rd] = result;
+                set_nzcv(state, result, op1, op2, 0, 1, 1);
+                break;
+            }
             case 0x24: {  // ADD (immediate, 12-bit)
                 // Формат: ADD Xd, Xn, #imm12
                 // instr[31:22]=опкод, [21:10]=imm12, [9:5]=Rn, [4:0]=Rd
@@ -1549,6 +1575,91 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
         case 55:  // getsockopt
         {
             // Упрощенная реализация getsockopt
+            state->x[0] = -ENOSYS;
+            break;
+        }
+        
+        case 29:  // shmget
+        {
+            // Упрощенная реализация shmget
+            state->x[0] = -ENOSYS;
+            break;
+        }
+        
+        case 30:  // shmat
+        {
+            // Упрощенная реализация shmat
+            state->x[0] = -ENOSYS;
+            break;
+        }
+        
+        case 31:  // shmctl
+        {
+            // Упрощенная реализация shmctl
+            state->x[0] = -ENOSYS;
+            break;
+        }
+        
+        case 32:  // dup
+        {
+            int real_fd = get_real_fd(state->x[0]);
+            if (real_fd >= 0) {
+                int new_fd = dup(real_fd);
+                if (new_fd >= 0) {
+                    int guest_fd = register_fd(new_fd);
+                    if (guest_fd < 0) {
+                        close(new_fd);
+                        state->x[0] = -EMFILE;
+                    } else {
+                        state->x[0] = guest_fd;
+                    }
+                } else {
+                    state->x[0] = -errno;
+                }
+            } else {
+                state->x[0] = -EBADF;
+            }
+            break;
+        }
+        
+        case 33:  // dup2
+        {
+            int old_fd = get_real_fd(state->x[0]);
+            int new_fd = state->x[1];
+            
+            if (old_fd >= 0) {
+                int res = dup2(old_fd, new_fd);
+                if (res >= 0) {
+                    state->x[0] = new_fd;
+                } else {
+                    state->x[0] = -errno;
+                }
+            } else {
+                state->x[0] = -EBADF;
+            }
+            break;
+        }
+        
+        case 34:  // pause
+        {
+            // Упрощенная реализация pause
+            state->x[0] = -EINTR;
+            break;
+        }
+        
+        case 35:  // nanosleep
+        {
+            struct timespec* req = (struct timespec*)(state->memory + (state->x[0] - state->base_addr));
+            struct timespec* rem = (struct timespec*)(state->memory + (state->x[1] - state->base_addr));
+            int res = nanosleep(req, rem);
+            if (res < 0) res = -errno;
+            state->x[0] = res;
+            break;
+        }
+        
+        case 36:  // getitimer
+        {
+            // Упрощенная реализация getitimer
             state->x[0] = -ENOSYS;
             break;
         }
