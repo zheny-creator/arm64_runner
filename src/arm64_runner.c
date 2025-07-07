@@ -1796,17 +1796,59 @@ void dump_registers(Arm64State* state) {
         printf("BASE= 0x%016lX\n", state->base_addr);
     }
 }
+static int get_latest_release_tag(char* tag, size_t tag_size);
+
+static int print_latest_github_changelog() {
+    // Скачиваем JSON с описанием последнего релиза
+    const char* api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest";
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "curl -s '%s' -o /tmp/arm64runner_release.json", api_url);
+    int res = system(cmd);
+    if (res != 0) {
+        printf("Ошибка загрузки информации о релизе с GitHub.\n");
+        return 1;
+    }
+    FILE* f = fopen("/tmp/arm64runner_release.json", "r");
+    if (!f) {
+        printf("Ошибка открытия временного файла релиза.\n");
+        return 1;
+    }
+    char line[2048];
+    int in_body = 0;
+    printf("\n===== CHANGELOG (GitHub Release) =====\n\n");
+    while (fgets(line, sizeof(line), f)) {
+        char* body_ptr = strstr(line, "\"body\":");
+        if (body_ptr) {
+            // Нашли начало поля body
+            char* start = strchr(body_ptr, '"');
+            if (start) start = strchr(start+1, '"'); // до второго кавычки
+            if (start) start++;
+            char* end = strrchr(line, '"');
+            if (end && end > start) *end = 0;
+            if (start) printf("%s\n", start);
+            in_body = 1;
+            break; // body всегда в одной строке (API)
+        }
+    }
+    fclose(f);
+    unlink("/tmp/arm64runner_release.json");
+    if (!in_body) {
+        printf("Changelog не найден в описании релиза!\n");
+        return 1;
+    }
+    return 0;
+}
 
 int main(int argc, char** argv) {
     if (argc >= 2 && strcmp(argv[1], "--update") == 0) {
         return run_update();
     }
     if (argc >= 2 && (strcmp(argv[1], "--about") == 0 || strcmp(argv[1], "--version") == 0)) {
-        printf("ARM64 Runner v1.0\nАвтор: Женя Бородин\nИнтерпретатор ARM64 ELF бинарников для Linux x86_64\n");
+        printf("ARM64 Runner v1.1-rc2\nАвтор: Женя Бородин\nИнтерпретатор ARM64 ELF бинарников для Linux x86_64\n");
         return 0;
     }
     if (argc >= 2 && (strcmp(argv[1], "--help") == 0)) {
-        printf("ARM64 Runner v1.0\n");
+        printf("ARM64 Runner v1.1-rc2\n");
         printf("Использование: %s <arm64-elf-binary> [--trace] [--patches <file>] [--debug]\n", argv[0]);
         printf("Опции:\n");
         printf("  --help        Показать эту справку\n");
@@ -1820,17 +1862,7 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (argc >= 2 && (strcmp(argv[1], "--changelog") == 0)) {
-        printf("Изменения в ARM64 Runner 1.0:\n");
-        printf("- Поддержка новых арифметических инструкций: MUL, SDIV, UDIV\n");
-        printf("- Полная поддержка операций с памятью: LDR, STR, LDUR, STUR, LDP, STP (все варианты)\n");
-        printf("- Расширенная поддержка ветвлений: B, B.cond, CBZ, CBNZ, RET, BR\n");
-        printf("- Добавлено 27 новых инструкций ARM64 по сравнению с предыдущей версией\n");
-        printf("- Существенно расширен набор поддерживаемых системных вызовов (добавлено более 30 новых syscalls: mmap, munmap, select, socket и др.)\n");
-        printf("- Улучшена проверка границ и выравнивания памяти\n");
-        printf("- Универсальная обработка MOVZ/MOVN/MOVK/SVC/CBZ/CBNZ для совместимости\n");
-        printf("- Совместимость с бинарниками предыдущих версий полностью сохранена\n");
-        printf("- Исправлены критические уязвимости (переполнения, проверки границ)\n");
-        return 0;
+        return print_latest_github_changelog();
     }
     if (argc >= 2 && (strcmp(argv[1], "--katze") == 0)) {
         printf("Эй, это не кот на немецком бака!\n");
@@ -1900,4 +1932,26 @@ int main(int argc, char** argv) {
 // Прототип новой пасхальной функции
 void katze_is_baka() {
     printf("Это пасхалка.. А что еще надо?\n");
+}
+
+// --- Вспомогательная функция для получения тега последнего релиза ---
+static int get_latest_release_tag(char* tag, size_t tag_size) {
+    // Аналогично update_module.c
+    const char* api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest";
+    char curl_cmd[512];
+    snprintf(curl_cmd, sizeof(curl_cmd), "curl -s '%s' | grep 'tag_name' | cut -d \"\" -f4 > /tmp/latest_tag.txt", api_url);
+    int result = system(curl_cmd);
+    if (result != 0) return 1;
+    FILE* f = fopen("/tmp/latest_tag.txt", "r");
+    if (!f) return 1;
+    if (!fgets(tag, tag_size, f)) {
+        fclose(f);
+        return 1;
+    }
+    fclose(f);
+    unlink("/tmp/latest_tag.txt");
+    size_t len = strlen(tag);
+    if (len > 0 && tag[len-1] == '\n') tag[len-1] = 0;
+    if (strlen(tag) == 0) return 1;
+    return 0;
 }

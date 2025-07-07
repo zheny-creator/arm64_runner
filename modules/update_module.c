@@ -11,7 +11,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <sys/wait.h>
 #include <getopt.h>
-#define RUNNER_VERSION "1.0"
+#define RUNNER_VERSION "1.1-rc2"
 
 // --- Структуры и таблицы ---
 /*
@@ -62,26 +62,21 @@ static int get_latest_release_tag(char* tag, size_t tag_size) {
     if (update_debug) fprintf(stderr, "[Update][DEBUG] RC-режим: %s\n", update_rc_mode ? "включен" : "выключен");
     if (update_debug) fprintf(stderr, "[Update][DEBUG] Используем system для получения тега...\n");
     
-    // Используем system вместо popen для избежания проблем с памятью
     const char* api_url;
     if (update_rc_mode) {
-        // Для RC-версий получаем последний pre-release
         api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases?per_page=10";
         if (update_debug) fprintf(stderr, "[Update][DEBUG] Получаем pre-release версии...\n");
     } else {
-        // Для стабильных версий получаем последний release
         api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest";
         if (update_debug) fprintf(stderr, "[Update][DEBUG] Получаем стабильную версию...\n");
     }
     
     char curl_cmd[1024];
     if (update_rc_mode) {
-        // Для RC: получаем список релизов, фильтруем pre-release, берем первый
         snprintf(curl_cmd, sizeof(curl_cmd), 
             "curl -s '%s' | grep -B 10 '\"prerelease\": true' | grep '\"tag_name\"' | head -1 | cut -d '\"' -f4 > /tmp/latest_tag.txt", 
             api_url);
     } else {
-        // Для стабильных: получаем latest release
         snprintf(curl_cmd, sizeof(curl_cmd), 
             "curl -s '%s' | grep 'tag_name' | cut -d '\"' -f4 > /tmp/latest_tag.txt", 
             api_url);
@@ -93,7 +88,6 @@ static int get_latest_release_tag(char* tag, size_t tag_size) {
         return 1;
     }
     
-    // Читаем результат из файла
     FILE* f = fopen("/tmp/latest_tag.txt", "r");
     if (!f) {
         if (update_debug) fprintf(stderr, "[Update][DEBUG] Не удалось открыть /tmp/latest_tag.txt\n");
@@ -107,15 +101,13 @@ static int get_latest_release_tag(char* tag, size_t tag_size) {
     }
     
     fclose(f);
-    unlink("/tmp/latest_tag.txt"); // Удаляем временный файл
+    unlink("/tmp/latest_tag.txt");
     
     if (update_debug) fprintf(stderr, "[Update][DEBUG] fgets успешно прочитал: '%s'\n", tag);
-    // Удаляем перевод строки, если есть
     size_t len = strlen(tag);
     if (len > 0 && tag[len-1] == '\n') tag[len-1] = 0;
     if (update_debug) fprintf(stderr, "[Update][DEBUG] После удаления \\n: '%s'\n", tag);
     
-    // Проверяем, что tag не пустой и не содержит пробелов/спецсимволов
     if (strlen(tag) == 0 || strchr(tag, ' ') || strchr(tag, '\t') || strchr(tag, '\n')) {
         if (update_debug) fprintf(stderr, "[Update][DEBUG] Получен некорректный тег релиза: '%s'\n", tag);
         return 1;
@@ -197,29 +189,42 @@ void update_get_url(UpdateParams* params) {
         printf("[Update] Не удалось получить тег последнего релиза!\n");
         params->url[0] = 0;
         params->filename[0] = 0;
-        params->install_type = 0;
         return;
     }
-
-    const char* ext = NULL;
-    if (has_cmd("dpkg")) {
-        ext = "deb";
-        params->install_type = 1;
-    } else if (has_cmd("rpm")) {
-        ext = "rpm";
-        params->install_type = 2;
-    } else {
-        printf("[Update] Не найден подходящий пакетный менеджер (dpkg/rpm)!\n");
-        params->url[0] = 0;
-        params->filename[0] = 0;
-        params->install_type = 0;
-        return;
-    }
-
-    snprintf(params->filename, sizeof(params->filename), "Arm64_Runner.%s", ext);
+    // Сначала пробуем tar.gz
+    snprintf(params->filename, sizeof(params->filename), "Arm64_Runner.tar.gz");
     snprintf(params->url, sizeof(params->url),
         "https://github.com/zheny-creator/arm64_runner/releases/download/%s/%s",
         tag, params->filename);
+    // Проверяем HEAD-запросом, существует ли tar.gz
+    char check_cmd[512];
+    snprintf(check_cmd, sizeof(check_cmd), "curl -sI '%s' | grep -q '^HTTP/.* 200'", params->url);
+    int tar_exists = system(check_cmd);
+    if (tar_exists != 0) {
+        // Если tar.gz нет, ищем deb или rpm
+        const char* alt_exts[] = {"deb", "rpm"};
+        int found = 0;
+        for (int i = 0; i < 2; ++i) {
+            snprintf(params->filename, sizeof(params->filename), "Arm64_Runner.%s", alt_exts[i]);
+            snprintf(params->url, sizeof(params->url),
+                "https://github.com/zheny-creator/arm64_runner/releases/download/%s/%s",
+                tag, params->filename);
+            snprintf(check_cmd, sizeof(check_cmd), "curl -sI '%s' | grep -q '^HTTP/.* 200'", params->url);
+            if (system(check_cmd) == 0) {
+                found = 1;
+                break;
+            }
+        }
+        if (found) {
+            printf("[Update] Найден только пакет .deb или .rpm.\n");
+            printf("[Update] Поддержка deb/rpm больше не осуществляется. Используйте tar.gz архив.\n");
+        } else {
+            printf("[Update] Не найден ни tar.gz, ни deb/rpm архив для последнего релиза!\n");
+        }
+        params->url[0] = 0;
+        params->filename[0] = 0;
+        return;
+    }
 }
 
 #ifndef _GNU_SOURCE
@@ -246,7 +251,7 @@ int update_download(const UpdateParams* params) {
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, params->url);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL); // стандартная запись
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, f);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "arm64_runner");
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
@@ -259,12 +264,10 @@ int update_download(const UpdateParams* params) {
     if (res != CURLE_OK) {
         printf("[Update][DEBUG] curl error: %s\n", curl_easy_strerror(res));
     }
-    // Выводим размер скачанного файла
     struct stat st;
     if (stat(params->filename, &st) == 0) {
         printf("[Update][DEBUG] Downloaded file size: %ld bytes\n", (long)st.st_size);
     }
-
     return (res == CURLE_OK) ? 0 : 1;
 }
 
@@ -279,37 +282,24 @@ int update_verify(const UpdateParams* params) {
     return 1;
 }
 
-int update_install(const UpdateParams* params) {
+int update_extract(const UpdateParams* params) {
     char cmd[512];
-    if (params->install_type == 1) {
-        snprintf(cmd, sizeof(cmd), "sudo dpkg -i '%s'", params->filename);
-    } else if (params->install_type == 2) {
-        snprintf(cmd, sizeof(cmd), "sudo rpm -i '%s' || sudo dnf install -y '%s' || sudo zypper install -y '%s'", params->filename, params->filename, params->filename);
-    } else if (params->install_type == 3) {
-        snprintf(cmd, sizeof(cmd), "sudo pacman -U --noconfirm '%s'", params->filename);
-    } else {
-        printf("[Update] Не найден подходящий пакет для установки!\n");
-        return 1;
-    }
-    printf("[Update] Установка пакета: %s\n", cmd);
+    snprintf(cmd, sizeof(cmd), "tar -xzf '%s'", params->filename);
+    printf("[Update] Распаковка архива: %s\n", cmd);
     int res = system(cmd);
     if (res != 0) {
-        printf("[Update] Ошибка установки пакета!\n");
+        printf("[Update] Ошибка распаковки архива!\n");
         return 1;
     }
+    printf("[Update] Архив успешно распакован в текущую директорию.\n");
     return 0;
 }
 
 int run_update() {
     UpdateParams params = {0};
-    update_detect_distro(&params);
-    if (params.distro[0] == 0) {
-        printf("[Update] Не удалось определить дистрибутив!\n");
-        return 1;
-    }
     update_get_url(&params);
-    if (params.filename[0] == 0 || params.install_type == 0) {
-        printf("[Update] Не удалось определить имя файла или тип пакета для обновления.\n");
+    if (params.filename[0] == 0) {
+        printf("[Update] Не удалось определить имя файла для обновления.\n");
         return 1;
     }
     char latest_tag[64] = {0};
@@ -317,16 +307,10 @@ int run_update() {
         printf("[Update] Не удалось получить тег последнего релиза!\n");
         return 1;
     }
-    printf("[Update] Текущая версия: %s, последняя: %s%s\n", 
-           RUNNER_VERSION, latest_tag, update_rc_mode ? " (pre-release)" : "");
-    if (strcmp(RUNNER_VERSION, latest_tag) == 0) {
-        printf("[Update] У вас уже последняя версия.\n");
-        return 0;
-    }
+    printf("[Update] Последняя версия: %s%s\n", latest_tag, update_rc_mode ? " (pre-release)" : "");
     snprintf(params.url, sizeof(params.url),
         "https://github.com/zheny-creator/arm64_runner/releases/download/%s/%s",
         latest_tag, params.filename);
-    printf("[Update] Distro: %s\n", params.distro);
     printf("[Update] URL: %s\n", params.url);
     const char* slash = strrchr(params.url, '/');
     if (slash) strncpy(params.filename, slash+1, sizeof(params.filename));
@@ -339,8 +323,8 @@ int run_update() {
         printf("[Update] Verify failed!\n");
         return 1;
     }
-    if (update_install(&params) != 0) {
-        printf("[Update] Install failed!\n");
+    if (update_extract(&params) != 0) {
+        printf("[Update] Extract failed!\n");
         return 1;
     }
     printf("[Update] Update complete!%s\n", update_rc_mode ? " (pre-release installed)" : "");
@@ -351,13 +335,15 @@ void print_update_help() {
     printf("ARM64 Runner Update Module\n");
     printf("Usage: update_module [options]\n");
     printf("Options:\n");
-    printf("  --debug, -d     Enable debug output\n");
-    printf("  --rc, -r        Install pre-release (RC) version instead of stable\n");
-    printf("  --prerelease    Same as --rc\n");
-    printf("  --help, -h      Show this help\n");
+    printf("  --debug, -d     Включить вывод отладочной информации\n");
+    printf("  --rc, -r        Установить pre-release (RC) версию вместо стабильной\n");
+    printf("  --prerelease    То же, что и --rc\n");
+    printf("  --help, -h      Показать эту справку\n");
     printf("\n");
-    printf("Examples:\n");
-    printf("  update_module              # Install latest stable version\n");
-    printf("  update_module --rc         # Install latest pre-release version\n");
-    printf("  update_module --debug --rc # Install RC with debug output\n");
+    printf("Пример:\n");
+    printf("  update_module              # Установить последнюю стабильную версию (tar.gz)\n");
+    printf("  update_module --rc         # Установить последнюю pre-release версию (tar.gz)\n");
+    printf("  update_module --debug --rc # Установить RC с отладкой\n");
+    printf("\n");
+    printf("Архив будет распакован в текущую директорию.\n");
 } 

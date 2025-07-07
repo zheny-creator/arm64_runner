@@ -16,14 +16,13 @@ typedef struct {
     char distro[64];
     char url[256];
     char filename[128];
-    int install_type; // 1 - deb, 2 - rpm, 3 - pkg.tar.zst
-    int dry_run;
 } UpdateParams;
 
 void update_detect_distro(UpdateParams* params);
 void update_get_url(UpdateParams* params);
 int update_download(const UpdateParams* params);
 int update_verify(const UpdateParams* params);
+int update_extract(const UpdateParams* params);
 int update_install(const UpdateParams* params);
 int run_update();
 void print_update_help();
