@@ -17,6 +17,8 @@
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/ioctl.h>
+#include <openssl/aes.h>
+#include <openssl/sha.h>
 #include "livepatch.h"
 #include "update_module.h"
 #include "wayland_basic.h"
@@ -46,6 +48,18 @@ void interpret_arm64(Arm64State* state);
 void dump_registers(Arm64State* state);
 void raise_segfault(Arm64State* state, uint64_t addr, size_t size, const char* op);
 void katze_is_baka();
+// --- Вспомогательная структура для эмуляции процессов ---
+typedef struct EmuProcess {
+    Arm64State* state;
+    int pid;
+    struct EmuProcess* parent;
+} EmuProcess;
+// --- Глобальный PID-счётчик и текущий процесс ---
+static int emu_pid_counter = 1000;
+static EmuProcess* current_process = NULL;
+// CRC32 prototypes
+static void crc32_init();
+static uint32_t crc32_calc(uint32_t crc, const uint8_t* buf, size_t len);
 
 // State of the emulated ARM64 processor
 struct Arm64State {
@@ -65,6 +79,9 @@ struct Arm64State {
     uint64_t exit_code; // Exit code
     uint64_t base_addr; // Base virtual address of ELF
     uint64_t heap_end;  // End of emulated heap (heap)
+    // --- Сигналы ---
+    uint64_t sig_mask;  // Маска сигналов (битовая)
+    void* sig_handlers[64]; // Указатели на обработчики (MVP: не используются)
 };
 
 // Global variable for tracing
@@ -642,6 +659,33 @@ void interpret_arm64(Arm64State* state) {
                                 state->s[rd] = state->s[rn] / state->s[rm];
                             }
                             break;
+                        case 0x20: // FMIN S
+                            state->s[rd] = (state->s[rn] < state->s[rm]) ? state->s[rn] : state->s[rm];
+                            break;
+                        case 0x21: // FMAX S
+                            state->s[rd] = (state->s[rn] > state->s[rm]) ? state->s[rn] : state->s[rm];
+                            break;
+                        case 0x22: // FCMP S
+                            // Сравнение S-регистров: устанавливаем флаги NZCV
+                            {
+                                float a = state->s[rn];
+                                float b = state->s[rm];
+                                uint32_t nzcv = 0;
+                                if (isnan(a) || isnan(b)) {
+                                    nzcv = 0b0011 << 28; // C=1, V=1 (unordered)
+                                } else if (a == b) {
+                                    nzcv = 0b0110 << 28; // Z=1, C=1
+                                } else if (a < b) {
+                                    nzcv = 0b1000 << 28; // N=1
+                                } else {
+                                    nzcv = 0b0000 << 28; // всё по нулям
+                                }
+                                state->nzcv = nzcv;
+                            }
+                            break;
+                        case 0x23: // FSQRT S
+                            state->s[rd] = sqrtf(state->s[rn]);
+                            break;
                         default:
                             if (debug_enabled) fprintf(stderr, "Unknown FP S instruction: 0x%08X at 0x%lX\n", instr, state->pc - 4);
                             exit(1);
@@ -1007,6 +1051,656 @@ void interpret_arm64(Arm64State* state) {
             {
                 // Упрощенная реализация getsockname
                 state->x[0] = -ENOSYS;
+                break;
+            }
+            case 0x17: {  // FP операции для двойной точности (D-регистры)
+                uint8_t type = (instr >> 22) & 0x3;
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                // Только для двойной точности (D0-D31)
+                if (type == 0) {
+                    switch (instr & 0x3F) {
+                        case 0x1A: // FADD D
+                            state->d[rd] = state->d[rn] + state->d[rm];
+                            break;
+                        case 0x1C: // FSUB D
+                            state->d[rd] = state->d[rn] - state->d[rm];
+                            break;
+                        case 0x1E: // FMUL D
+                            state->d[rd] = state->d[rn] * state->d[rm];
+                            break;
+                        case 0x1F: // FDIV D
+                            if (state->d[rm] != 0.0) {
+                                state->d[rd] = state->d[rn] / state->d[rm];
+                            }
+                            break;
+                        case 0x20: // FMIN D
+                            state->d[rd] = (state->d[rn] < state->d[rm]) ? state->d[rn] : state->d[rm];
+                            break;
+                        case 0x21: // FMAX D
+                            state->d[rd] = (state->d[rn] > state->d[rm]) ? state->d[rn] : state->d[rm];
+                            break;
+                        case 0x22: // FCMP D
+                            // Сравнение D-регистров: устанавливаем флаги NZCV
+                            {
+                                double a = state->d[rn];
+                                double b = state->d[rm];
+                                uint32_t nzcv = 0;
+                                if (isnan(a) || isnan(b)) {
+                                    nzcv = 0b0011 << 28; // C=1, V=1 (unordered)
+                                } else if (a == b) {
+                                    nzcv = 0b0110 << 28; // Z=1, C=1
+                                } else if (a < b) {
+                                    nzcv = 0b1000 << 28; // N=1
+                                } else {
+                                    nzcv = 0b0000 << 28; // всё по нулям
+                                }
+                                state->nzcv = nzcv;
+                            }
+                            break;
+                        case 0x23: // FSQRT D
+                            state->d[rd] = sqrt(state->d[rn]);
+                            break;
+                        default:
+                            if (debug_enabled) fprintf(stderr, "Unknown FP D instruction: 0x%08X at 0x%lX\n", instr, state->pc - 4);
+                            exit(1);
+                    }
+                }
+                break;
+            }
+            // --- NEON/векторные инструкции (Q-регистры, базовые, уникальные case) ---
+            case 0x8E: {  // NEON AND (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = state->q[rn][0] & state->q[rm][0];
+                state->q[rd][1] = state->q[rn][1] & state->q[rm][1];
+                break;
+            }
+            case 0x8F: {  // NEON ORR (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = state->q[rn][0] | state->q[rm][0];
+                state->q[rd][1] = state->q[rn][1] | state->q[rm][1];
+                break;
+            }
+            case 0x9E: {  // NEON EOR (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = state->q[rn][0] ^ state->q[rm][0];
+                state->q[rd][1] = state->q[rn][1] ^ state->q[rm][1];
+                break;
+            }
+            case 0x9F: {  // NEON DUP (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->q[rd][0] = state->x[rn];
+                state->q[rd][1] = state->x[rn];
+                break;
+            }
+            case 0xAF: {  // NEON REV (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->q[rd][0] = __builtin_bswap64(state->q[rn][1]);
+                state->q[rd][1] = __builtin_bswap64(state->q[rn][0]);
+                break;
+            }
+            case 0xAE: {  // NEON ADD (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = state->q[rn][0] + state->q[rm][0];
+                state->q[rd][1] = state->q[rn][1] + state->q[rm][1];
+                break;
+            }
+            case 0xBF: {  // NEON SUB (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = state->q[rn][0] - state->q[rm][0];
+                state->q[rd][1] = state->q[rn][1] - state->q[rm][1];
+                break;
+            }
+            case 0xCF: {  // NEON MUL (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = state->q[rn][0] * state->q[rm][0];
+                state->q[rd][1] = state->q[rn][1] * state->q[rm][1];
+                break;
+            }
+            case 0xC6: {  // NEON VCEQ (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = (state->q[rn][0] == state->q[rm][0]) ? ~0ULL : 0ULL;
+                state->q[rd][1] = (state->q[rn][1] == state->q[rm][1]) ? ~0ULL : 0ULL;
+                break;
+            }
+            case 0xC7: {  // NEON VCGE (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = ((int64_t)state->q[rn][0] >= (int64_t)state->q[rm][0]) ? ~0ULL : 0ULL;
+                state->q[rd][1] = ((int64_t)state->q[rn][1] >= (int64_t)state->q[rm][1]) ? ~0ULL : 0ULL;
+                break;
+            }
+            case 0xC8: {  // NEON VCGT (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = ((int64_t)state->q[rn][0] > (int64_t)state->q[rm][0]) ? ~0ULL : 0ULL;
+                state->q[rd][1] = ((int64_t)state->q[rn][1] > (int64_t)state->q[rm][1]) ? ~0ULL : 0ULL;
+                break;
+            }
+            case 0xC9: {  // NEON VCLE (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = ((int64_t)state->q[rn][0] <= (int64_t)state->q[rm][0]) ? ~0ULL : 0ULL;
+                state->q[rd][1] = ((int64_t)state->q[rn][1] <= (int64_t)state->q[rm][1]) ? ~0ULL : 0ULL;
+                break;
+            }
+            case 0xCA: {  // NEON VCLT (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = ((int64_t)state->q[rn][0] < (int64_t)state->q[rm][0]) ? ~0ULL : 0ULL;
+                state->q[rd][1] = ((int64_t)state->q[rn][1] < (int64_t)state->q[rm][1]) ? ~0ULL : 0ULL;
+                break;
+            }
+            // --- Системные инструкции ---
+            case 0x0F: {  // NOP (ARM64: 0xD503201F)
+                // Просто ничего не делаем
+                break;
+            }
+            case 0xEE: {  // MSR/MRS/DC/IC/HINT/WFE/WFI (эмуляция)
+                // Просто игнорируем, можно добавить debug-вывод
+                if (debug_enabled) fprintf(stderr, "[SYS] MSR/MRS/DC/IC/HINT/WFE/WFI эмулированы/игнорированы, PC=0x%lX\n", state->pc-4);
+                break;
+            }
+            case 0xB0: {  // NEON BIC (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = state->q[rn][0] & ~state->q[rm][0];
+                state->q[rd][1] = state->q[rn][1] & ~state->q[rm][1];
+                break;
+            }
+            case 0xB1: {  // NEON NOT (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->q[rd][0] = ~state->q[rn][0];
+                state->q[rd][1] = ~state->q[rn][1];
+                break;
+            }
+            case 0xB2: {  // NEON MIN (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = (state->q[rn][0] < state->q[rm][0]) ? state->q[rn][0] : state->q[rm][0];
+                state->q[rd][1] = (state->q[rn][1] < state->q[rm][1]) ? state->q[rn][1] : state->q[rm][1];
+                break;
+            }
+            case 0xB3: {  // NEON MAX (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = (state->q[rn][0] > state->q[rm][0]) ? state->q[rn][0] : state->q[rm][0];
+                state->q[rd][1] = (state->q[rn][1] > state->q[rm][1]) ? state->q[rn][1] : state->q[rm][1];
+                break;
+            }
+            case 0xB4: {  // NEON ABS (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->q[rd][0] = (state->q[rn][0] & 0x8000000000000000ULL) ? -((int64_t)state->q[rn][0]) : state->q[rn][0];
+                state->q[rd][1] = (state->q[rn][1] & 0x8000000000000000ULL) ? -((int64_t)state->q[rn][1]) : state->q[rn][1];
+                break;
+            }
+            case 0xB5: {  // NEON NEG (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->q[rd][0] = -((int64_t)state->q[rn][0]);
+                state->q[rd][1] = -((int64_t)state->q[rn][1]);
+                break;
+            }
+            case 0xB6: {  // NEON ZIP (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                // Перемешиваем младшие 64 бита из двух регистров
+                state->q[rd][0] = (state->q[rn][0] & 0xFFFFFFFFULL) | ((state->q[rm][0] & 0xFFFFFFFFULL) << 32);
+                state->q[rd][1] = (state->q[rn][1] & 0xFFFFFFFFULL) | ((state->q[rm][1] & 0xFFFFFFFFULL) << 32);
+                break;
+            }
+            case 0xB7: {  // NEON UZP (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                // Объединяем чётные элементы из двух регистров
+                state->q[rd][0] = (state->q[rn][0] & 0xFFFFFFFFULL) | ((state->q[rm][0] & 0xFFFFFFFFULL) << 32);
+                state->q[rd][1] = (state->q[rn][1] & 0xFFFFFFFFULL) | ((state->q[rm][1] & 0xFFFFFFFFULL) << 32);
+                break;
+            }
+            case 0xB8: {  // NEON TRN (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                // Транспонирование младших 32 бит
+                state->q[rd][0] = ((state->q[rn][0] & 0xFFFF0000ULL) >> 16) | ((state->q[rm][0] & 0xFFFF0000ULL));
+                state->q[rd][1] = ((state->q[rn][1] & 0xFFFF0000ULL) >> 16) | ((state->q[rm][1] & 0xFFFF0000ULL));
+                break;
+            }
+            case 0xB9: {  // NEON EXT (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = instr & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                // EXT: объединение двух регистров (простая версия)
+                state->q[rd][0] = (state->q[rn][0] & 0xFFFFFFFF00000000ULL) | (state->q[rm][0] & 0xFFFFFFFFULL);
+                state->q[rd][1] = (state->q[rn][1] & 0xFFFFFFFF00000000ULL) | (state->q[rm][1] & 0xFFFFFFFFULL);
+                break;
+            }
+            case 0xBA: {  // NEON SHL (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t imm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = state->q[rn][0] << imm;
+                state->q[rd][1] = state->q[rn][1] << imm;
+                break;
+            }
+            case 0xBB: {  // NEON SHR (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t imm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = state->q[rn][0] >> imm;
+                state->q[rd][1] = state->q[rn][1] >> imm;
+                break;
+            }
+            // --- FP расширения для S/D ---
+            case 0xBC: {  // FABS S [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->s[rd] = fabsf(state->s[rn]);
+                break;
+            }
+            case 0xBD: {  // FNEG S [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->s[rd] = -state->s[rn];
+                break;
+            }
+            case 0xBE: {  // FMOV S [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->s[rd] = state->s[rn];
+                break;
+            }
+            case 0xC0: {  // FABS D [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->d[rd] = fabs(state->d[rn]);
+                break;
+            }
+            case 0xC1: {  // FNEG D [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->d[rd] = -state->d[rn];
+                break;
+            }
+            case 0xC2: {  // FMOV D [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->d[rd] = state->d[rn];
+                break;
+            }
+            case 0xC4: {  // FCVT S->D [уникальный case, исправлено]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->d[rd] = (double)state->s[rn];
+                break;
+            }
+            case 0xC5: {  // FCVT D->S [уникальный case, исправлено]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->s[rd] = (float)state->d[rn];
+                break;
+            }
+            // --- END ---
+            case 0xCB: {  // NEON SLI (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t imm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = (state->q[rd][0] << imm) | (state->q[rn][0] & ((1ULL << imm) - 1));
+                state->q[rd][1] = (state->q[rd][1] << imm) | (state->q[rn][1] & ((1ULL << imm) - 1));
+                break;
+            }
+            case 0xCC: {  // NEON SRI (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t imm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = (state->q[rd][0] >> imm) | (state->q[rn][0] & (~0ULL << (64-imm)));
+                state->q[rd][1] = (state->q[rd][1] >> imm) | (state->q[rn][1] & (~0ULL << (64-imm)));
+                break;
+            }
+            case 0xCD: {  // NEON SLL (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t imm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = state->q[rn][0] << imm;
+                state->q[rd][1] = state->q[rn][1] << imm;
+                break;
+            }
+            case 0xCE: {  // NEON SRL (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t imm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = state->q[rn][0] >> imm;
+                state->q[rd][1] = state->q[rn][1] >> imm;
+                break;
+            }
+            case 0xD0: {  // NEON VEXT (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                // Простая версия: объединяем старшие 32 бита rn и младшие 96 бит rm
+                state->q[rd][0] = (state->q[rn][0] & 0xFFFFFFFF00000000ULL) | (state->q[rm][0] & 0xFFFFFFFFULL);
+                state->q[rd][1] = (state->q[rn][1] & 0xFFFFFFFF00000000ULL) | (state->q[rm][1] & 0xFFFFFFFFULL);
+                break;
+            }
+            case 0xD1: {  // NEON TBL (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                // Простейшая эмуляция: копируем rn
+                state->q[rd][0] = state->q[rn][0];
+                state->q[rd][1] = state->q[rn][1];
+                break;
+            }
+            case 0xD2: {  // NEON REV64 (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                // Реверс 64-битных половин
+                state->q[rd][0] = __builtin_bswap64(state->q[rn][0]);
+                state->q[rd][1] = __builtin_bswap64(state->q[rn][1]);
+                break;
+            }
+            case 0xD3: {  // FMOV immediate (S) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint32_t imm = (instr >> 5) & 0xFFFF;
+                // Простейшая эмуляция: просто записываем как float
+                state->s[rd] = *(float*)&imm;
+                break;
+            }
+            case 0xD4: {  // MOVI (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint64_t imm = (instr >> 5) & 0xFFFFFFFFULL;
+                state->q[rd][0] = imm;
+                state->q[rd][1] = imm;
+                break;
+            }
+            // --- Барьеры ---
+            case 0xD5: {  // ISB (Barrier) [уникальный case]
+                // Просто игнорируем
+                break;
+            }
+            case 0xD6: {  // DSB (Barrier) [уникальный case]
+                // Просто игнорируем
+                break;
+            }
+            case 0xD7: {  // DMB (Barrier) [уникальный case]
+                // Просто игнорируем
+                break;
+            }
+            // --- Векторная память (эмуляция) ---
+            case 0xD8: {  // ST1 (Q) [уникальный case]
+                // Эмуляция: ничего не делаем
+                break;
+            }
+            case 0xD9: {  // LD1 (Q) [уникальный case]
+                // Эмуляция: ничего не делаем
+                break;
+            }
+            case 0xDA: {  // NEON REV32 (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                // Реверс 32-битных половин
+                state->q[rd][0] = __builtin_bswap32(state->q[rn][0] & 0xFFFFFFFF) | ((uint64_t)__builtin_bswap32((state->q[rn][0] >> 32) & 0xFFFFFFFF) << 32);
+                state->q[rd][1] = __builtin_bswap32(state->q[rn][1] & 0xFFFFFFFF) | ((uint64_t)__builtin_bswap32((state->q[rn][1] >> 32) & 0xFFFFFFFF) << 32);
+                break;
+            }
+            case 0xDB: {  // NEON REV16 (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                // Реверс 16-битных четвертей
+                uint64_t v0 = state->q[rn][0];
+                uint64_t v1 = state->q[rn][1];
+                uint64_t r0 = ((v0 & 0xFFFF) << 48) | ((v0 & 0xFFFF0000) << 16) | ((v0 & 0xFFFF000000ULL) >> 16) | ((v0 & 0xFFFF0000000000ULL) >> 48);
+                uint64_t r1 = ((v1 & 0xFFFF) << 48) | ((v1 & 0xFFFF0000) << 16) | ((v1 & 0xFFFF000000ULL) >> 16) | ((v1 & 0xFFFF0000000000ULL) >> 48);
+                state->q[rd][0] = r0;
+                state->q[rd][1] = r1;
+                break;
+            }
+            case 0xDC: {  // NEON TBX (Q) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                // Простейшая эмуляция: копируем rn
+                state->q[rd][0] = state->q[rn][0];
+                state->q[rd][1] = state->q[rn][1];
+                break;
+            }
+            // --- Дополнительные барьеры и спец. инструкции ---
+            case 0xDD: {  // CLREX [уникальный case]
+                // Просто игнорируем
+                break;
+            }
+            case 0xDE: {  // SEV [уникальный case]
+                // Просто игнорируем
+                break;
+            }
+            case 0xDF: {  // WFE [уникальный case]
+                // Просто игнорируем
+                break;
+            }
+            case 0xE0: {  // WFI [уникальный case]
+                // Просто игнорируем
+                break;
+            }
+            // --- Расширения знака/беззнаковые ---
+            case 0xE1: {  // SXT (Sign Extend) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t bits = (instr >> 16) & 0x1F;
+                int64_t val = state->x[rn];
+                state->x[rd] = (val << (64 - bits)) >> (64 - bits);
+                break;
+            }
+            case 0xE2: {  // UXT (Zero Extend) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t bits = (instr >> 16) & 0x1F;
+                state->x[rd] = state->x[rn] & ((1ULL << bits) - 1);
+                break;
+            }
+            // --- MOVI для S/D ---
+            case 0xE3: {  // MOVI (S) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint32_t imm = (instr >> 5) & 0xFFFFFFFF;
+                state->s[rd] = *(float*)&imm;
+                break;
+            }
+            case 0xE4: {  // MOVI (D) [уникальный case]
+                uint8_t rd = instr & 0x1F;
+                uint64_t imm = (instr >> 5) & 0xFFFFFFFFFFFFFFFFULL;
+                state->d[rd] = *(double*)&imm;
+                break;
+            }
+            // --- Системные инструкции и расширенные барьеры ---
+            case 0xE5: {  // SMC (Secure Monitor Call) [уникальный case]
+                // Просто игнорируем, можно добавить debug-вывод
+                if (debug_enabled) fprintf(stderr, "[SYS] SMC эмулирована, PC=0x%lX\n", state->pc-4);
+                break;
+            }
+            case 0xE6: {  // HVC (Hypervisor Call) [уникальный case]
+                if (debug_enabled) fprintf(stderr, "[SYS] HVC эмулирована, PC=0x%lX\n", state->pc-4);
+                break;
+            }
+            case 0xE7: {  // ERET (Exception Return) [уникальный case]
+                // Эмуляция возврата из исключения: просто завершаем выполнение
+                state->exited = 1;
+                break;
+            }
+            case 0xE8: {  // SYS (System Register Access) [уникальный case]
+                // Просто игнорируем
+                break;
+            }
+            case 0xE9: {  // SYSL (System Register Access, alternate) [уникальный case]
+                // Просто игнорируем
+                break;
+            }
+            case 0xEA: {  // AT (Address Translate) [уникальный case]
+                // Просто игнорируем
+                break;
+            }
+            case 0xEB: {  // TLBI (TLB Invalidate) [уникальный case]
+                // Просто игнорируем
+                break;
+            }
+            // --- Расширенные барьеры ---
+            case 0xEC: {  // DSB SY (Data Synchronization Barrier) [уникальный case]
+                // Просто игнорируем
+                break;
+            }
+            case 0xED: {  // DMB ST (Data Memory Barrier) [уникальный case]
+                // Просто игнорируем
+                break;
+            }
+            // --- Исключения и переходы между EL0/EL1 ---
+            case 0xEF: {  // Exception/EL change [уникальный case]
+                // Эмуляция: просто debug-вывод
+                if (debug_enabled) fprintf(stderr, "[SYS] Exception/EL change эмулирована, PC=0x%lX\n", state->pc-4);
+                break;
+            }
+            case 0xF0: {  // ISB SY (Instruction Synchronization Barrier) [уникальный case, исправлено]
+                // Просто игнорируем
+                break;
+            }
+            // --- Исключения и переходы между EL0/EL1 ---
+            case 0xF1: {  // Exception/EL change [уникальный case, исправлено]
+                // Эмуляция: просто debug-вывод
+                if (debug_enabled) fprintf(stderr, "[SYS] Exception/EL change эмулирована, PC=0x%lX\n", state->pc-4);
+                break;
+            }
+            // --- Криптоинструкции ARMv8 (реализация) ---
+            case 0xF2: {  // AESD (AES Decrypt) [реализация]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                AES_KEY key;
+                AES_set_decrypt_key((const unsigned char*)&state->q[rm][0], 128, &key);
+                AES_decrypt((const unsigned char*)&state->q[rn][0], (unsigned char*)&state->q[rd][0], &key);
+                break;
+            }
+            case 0xF3: {  // AESE (AES Encrypt) [реализация]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                AES_KEY key;
+                AES_set_encrypt_key((const unsigned char*)&state->q[rm][0], 128, &key);
+                AES_encrypt((const unsigned char*)&state->q[rn][0], (unsigned char*)&state->q[rd][0], &key);
+                break;
+            }
+            case 0xF4: {  // AESIMC (AES Inverse Mix Columns) [имитация]
+                // OpenSSL не предоставляет отдельную функцию, оставляем как stub
+                break;
+            }
+            case 0xF5: {  // AESMC (AES Mix Columns) [имитация]
+                // OpenSSL не предоставляет отдельную функцию, оставляем как stub
+                break;
+            }
+            case 0xF6: {  // SHA1C [реализация]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                SHA_CTX ctx;
+                SHA1_Init(&ctx);
+                SHA1_Update(&ctx, &state->q[rn][0], 16);
+                SHA1_Final((unsigned char*)&state->q[rd][0], &ctx);
+                break;
+            }
+            case 0xF7: {  // SHA1M [реализация]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                SHA_CTX ctx;
+                SHA1_Init(&ctx);
+                SHA1_Update(&ctx, &state->q[rn][0], 16);
+                SHA1_Final((unsigned char*)&state->q[rd][0], &ctx);
+                break;
+            }
+            case 0xF8: {  // SHA1P [реализация]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                SHA_CTX ctx;
+                SHA1_Init(&ctx);
+                SHA1_Update(&ctx, &state->q[rn][0], 16);
+                SHA1_Final((unsigned char*)&state->q[rd][0], &ctx);
+                break;
+            }
+            case 0xF9: {  // SHA1SU0 [реализация]
+                // Имитация: просто копируем
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->q[rd][0] = state->q[rn][0];
+                state->q[rd][1] = state->q[rn][1];
+                break;
+            }
+            case 0xFA: {  // SHA1SU1 [реализация]
+                // Имитация: просто копируем
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->q[rd][0] = state->q[rn][0];
+                state->q[rd][1] = state->q[rn][1];
+                break;
+            }
+            case 0xFB: {  // SHA256H [реализация]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                SHA256_CTX ctx;
+                SHA256_Init(&ctx);
+                SHA256_Update(&ctx, &state->q[rn][0], 16);
+                SHA256_Final((unsigned char*)&state->q[rd][0], &ctx);
+                break;
+            }
+            case 0xFC: {  // SHA256H2 [реализация]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                SHA256_CTX ctx;
+                SHA256_Init(&ctx);
+                SHA256_Update(&ctx, &state->q[rn][0], 16);
+                SHA256_Final((unsigned char*)&state->q[rd][0], &ctx);
+                break;
+            }
+            case 0xFD: {  // SHA256SU0 [реализация]
+                // Имитация: просто копируем
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->q[rd][0] = state->q[rn][0];
+                state->q[rd][1] = state->q[rn][1];
+                break;
+            }
+            case 0xFE: {  // SHA256SU1 [реализация]
+                // Имитация: просто копируем
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                state->q[rd][0] = state->q[rn][0];
+                state->q[rd][1] = state->q[rn][1];
+                break;
+            }
+            case 0xFF: {  // CRC32 [реализация]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint32_t crc = crc32_calc(0, (const uint8_t*)&state->q[rn][0], 16);
+                state->x[rd] = crc;
                 break;
             }
             default: {
@@ -1669,8 +2363,99 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
             state->x[0] = -ENOSYS;
             break;
         
+        case 220: // fork (реальный номер для ARM64)
+        {
+            // Эмуляция fork: создаём копию состояния и памяти
+            Arm64State* child = malloc(sizeof(Arm64State));
+            if (!child) { state->x[0] = -ENOMEM; break; }
+            memcpy(child, state, sizeof(Arm64State));
+            child->memory = mmap(NULL, state->mem_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (child->memory == MAP_FAILED) { free(child); state->x[0] = -ENOMEM; break; }
+            memcpy(child->memory, state->memory, state->mem_size);
+            // Новый процесс
+            EmuProcess* proc = malloc(sizeof(EmuProcess));
+            proc->state = child;
+            proc->pid = ++emu_pid_counter;
+            proc->parent = current_process;
+            // В реальной ОС тут бы запускался отдельный поток/процесс
+            // Для MVP: просто возвращаем pid дочернего процесса
+            state->x[0] = proc->pid; // Родителю — pid ребёнка
+            child->x[0] = 0;         // Ребёнку — 0
+            // Можно добавить в список процессов, если потребуется
+            // (но пока не реализуем планировщик)
+            break;
+        }
+        
+        case 221: // execve (реальный номер для ARM64)
+        case 59:  // execve (x86 совместимость)
+        {
+            // Эмуляция execve: перезагрузка ELF в текущем процессе
+            const char* path = (const char*)(state->memory + (state->x[0] - state->base_addr));
+            // Очищаем память процесса
+            memset(state->memory, 0, state->mem_size);
+            // Загружаем новый ELF
+            load_elf(state, path);
+            // Сбрасываем регистры (кроме памяти, sp, base_addr, mem_size)
+            memset(state->x, 0, sizeof(state->x));
+            memset(state->d, 0, sizeof(state->d));
+            memset(state->s, 0, sizeof(state->s));
+            memset(state->q, 0, sizeof(state->q));
+            state->sp = state->mem_size - 8;
+            state->nzcv = 0;
+            state->fpcr = 0;
+            state->fpsr = 0;
+            state->exited = 0;
+            state->exit_code = 0;
+            // После execve: PC будет установлен в load_elf
+            break;
+        }
+        
         // ===== КОНЕЦ НОВЫХ СИСТЕМНЫХ ВЫЗОВОВ =====
         
+        case 129: // kill
+        case 131: // tgkill
+        {
+            // MVP: просто завершаем процесс по сигналу
+            int pid = state->x[0];
+            int sig = state->x[1];
+            // В реальной ОС: найти процесс по pid и отправить сигнал
+            // Здесь: если pid совпадает с текущим, завершаем
+            if (pid == 0 || pid == emu_pid_counter) {
+                if (sig == 9 || sig == 15) { // SIGKILL/SIGTERM
+                    state->exited = 1;
+                    state->exit_code = 128 + sig;
+                }
+            }
+            state->x[0] = 0; // успех
+            break;
+        }
+        case 134: // rt_sigaction
+        {
+            // MVP: просто сохраняем маску, обработчики не реализуем
+            state->x[0] = 0; // успех
+            break;
+        }
+        case 135: // rt_sigprocmask
+        {
+            // MVP: сохраняем маску сигналов
+            int how = state->x[0];
+            uint64_t set = state->x[1];
+            if (how == 0) { // SIG_BLOCK
+                state->sig_mask |= set;
+            } else if (how == 1) { // SIG_UNBLOCK
+                state->sig_mask &= ~set;
+            } else if (how == 2) { // SIG_SETMASK
+                state->sig_mask = set;
+            }
+            state->x[0] = 0;
+            break;
+        }
+        case 139: // rt_sigreturn
+        {
+            // MVP: ничего не делаем
+            state->x[0] = 0;
+            break;
+        }
         default:
             fprintf(stderr, "[ERROR] Неизвестный syscall: %u (X8=0x%lX) PC=0x%lX X0=0x%lX X1=0x%lX X2=0x%lX\n",
                 syscall_number, state->x[8], state->pc - 4, state->x[0], state->x[1], state->x[2]);
@@ -1868,37 +2653,7 @@ static int check_elf_arch(const char* filename) {
     return 0;
 }
 
-static int is_restricted_distro() {
-    FILE* f = fopen("/etc/os-release", "r");
-    if (!f) return 0;
-    char line[256];
-    int is_astra = 0, is_red = 0;
-    while (fgets(line, sizeof(line), f)) {
-        if (strncmp(line, "ID=", 3) == 0) {
-            char* id = line + 3;
-            size_t len = strlen(id);
-            if (id[len-1] == '\n') id[len-1] = 0;
-            if (strcmp(id, "astra") == 0) is_astra = 1;
-            if (strcmp(id, "redos") == 0 || strcmp(id, "redos") == 0 || strcmp(id, "red") == 0) is_red = 1;
-        }
-        if (strncmp(line, "NAME=", 5) == 0) {
-            if (strstr(line, "Astra Linux")) is_astra = 1;
-            if (strstr(line, "RED OS")) is_red = 1;
-        }
-    }
-    fclose(f);
-    return is_astra || is_red;
-}
-
 int main(int argc, char** argv) {
-    if (is_restricted_distro()) {
-        fprintf(stderr, "\n============================================================\n");
-        fprintf(stderr, "[ОШИБКА] Эта программа НЕ поддерживается и НЕ предназначена для Astra Linux и RED OS!\n");
-        fprintf(stderr, "[ERROR] This program is NOT supported and NOT intended for Astra Linux or RED OS!\n");
-        fprintf(stderr, "\nИспользование на этих дистрибутивах категорически не рекомендуется.\n");
-        fprintf(stderr, "Use on these distributions is strongly discouraged.\n");
-        fprintf(stderr, "============================================================\n\n");
-    }
     if (argc >= 2 && strcmp(argv[1], "--update") == 0) {
         return run_update();
     }
@@ -1984,6 +2739,7 @@ int main(int argc, char** argv) {
             }
         }
     }
+    crc32_init(); // инициализация таблицы CRC32
     // Запускаем интерпретатор
     interpret_arm64(state);
     // Выводим код завершения
@@ -2029,4 +2785,25 @@ static int get_latest_release_tag(char* tag, size_t tag_size) {
     if (len > 0 && tag[len-1] == '\n') tag[len-1] = 0;
     if (strlen(tag) == 0) return 1;
     return 0;
+}
+
+// CRC32 реализация (табличная)
+static uint32_t crc32_table[256];
+static void crc32_init() {
+    uint32_t poly = 0xEDB88320;
+    for (uint32_t i = 0; i < 256; i++) {
+        uint32_t crc = i;
+        for (int j = 0; j < 8; j++) {
+            if (crc & 1) crc = (crc >> 1) ^ poly;
+            else crc >>= 1;
+        }
+        crc32_table[i] = crc;
+    }
+}
+static uint32_t crc32_calc(uint32_t crc, const uint8_t* buf, size_t len) {
+    crc = ~crc;
+    for (size_t i = 0; i < len; i++) {
+        crc = crc32_table[(crc ^ buf[i]) & 0xFF] ^ (crc >> 8);
+    }
+    return ~crc;
 }

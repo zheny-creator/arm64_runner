@@ -1,15 +1,4 @@
 # =====================================================
-# ВНИМАНИЕ! Этот блок запрещает сборку на Astra Linux и RED OS.
-# Удалите или закомментируйте его, если хотите разрешить сборку на этих дистрибутивах.
-#
-# WARNING! This block disables build on Astra Linux and RED OS.
-# Remove or comment it out if you want to allow build on these distributions.
-# =====================================================
-ifeq ($(shell grep -E '^ID=(astra|redos|red)' /etc/os-release 2>/dev/null | wc -l),1)
-$(error Сборка на Astra Linux и RED OS не поддерживается! Build on Astra Linux and RED OS is not supported!)
-endif
-
-# =====================================================
 # Makefile для ARM64 Runner (эмулятор ARM64 ELF)
 # Основные цели:
 #   all        - собрать все бинарники
@@ -22,7 +11,7 @@ endif
 
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -O2 -g -Iinclude -ldl
-LDFLAGS = -lpthread
+LDFLAGS = -lpthread -lssl -lcrypto
 LDLIBS += -lcurl
 
 # Основные цели
@@ -41,7 +30,7 @@ all: arm64_runner update_module
 
 # Компиляция ARM64 Runner
 $(BIN): $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS) -lwayland-client
+	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS) -lwayland-client -lm
 
 # Компиляция объектных файлов
 src/%.o: src/%.c

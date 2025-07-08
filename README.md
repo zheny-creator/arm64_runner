@@ -1,13 +1,3 @@
-# ⚠️ Важно / Important
-
-**[RU]**
-> ⚠️ Данная программа не тестировалась и не поддерживается на Astra Linux и RED OS. Используйте на этих дистрибутивах на свой страх и риск!
-
-**[EN]**
-> ⚠️ This program is not tested and not supported on Astra Linux or RED OS. Use at your own risk on these distributions!
-
----
-
 # ARM64 Runner
 
 **English version | [Русская версия ниже](#arm64-runner-русский)**
