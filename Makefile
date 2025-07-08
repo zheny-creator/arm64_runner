@@ -21,7 +21,7 @@ TARGETS = arm64_runner update_module livepatch
 LIVEPATCH_OBJS = src/livepatch.o
 RUNNER_OBJS = src/arm64_runner.o
 
-SRC = src/arm64_runner.c modules/livepatch.c modules/update_module.c
+SRC = src/arm64_runner.c modules/livepatch.c modules/update_module.c src/wayland_basic.c
 SRC_NOUPDATE = src/arm64_runner.c modules/livepatch.c
 BIN = arm64_runner
 
@@ -30,7 +30,7 @@ all: arm64_runner update_module
 
 # Компиляция ARM64 Runner
 $(BIN): $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS)
+	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS) -lwayland-client
 
 # Компиляция объектных файлов
 src/%.o: src/%.c

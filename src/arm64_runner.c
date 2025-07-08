@@ -19,6 +19,7 @@
 #include <sys/ioctl.h>
 #include "livepatch.h"
 #include "update_module.h"
+#include "wayland_basic.h"
 #ifdef NO_UPDATE_MODULE
 int run_update() {
     printf("Update module is not included in this build.\n");
@@ -1883,6 +1884,17 @@ int main(int argc, char** argv) {
         }
         if (strcmp(argv[i], "--debug") == 0) {
             debug_enabled = 1;
+        }
+    }
+    if (argc >= 2 && strcmp(argv[1], "--wayland-test") == 0) {
+        WaylandContext ctx = {0};
+        if (wayland_init(&ctx) == 0) {
+            printf("Wayland test: surface создан успешно!\n");
+            wayland_cleanup(&ctx);
+            return 0;
+        } else {
+            printf("Wayland test: ошибка инициализации!\n");
+            return 1;
         }
     }
     // Инициализируем состояние
