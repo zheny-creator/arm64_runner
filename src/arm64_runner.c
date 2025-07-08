@@ -1840,6 +1840,34 @@ static int print_latest_github_changelog() {
     return 0;
 }
 
+// Проверка архитектуры ELF-файла
+static int check_elf_arch(const char* filename) {
+    FILE* f = fopen(filename, "rb");
+    if (!f) {
+        fprintf(stderr, "[ARCH CHECK] Не удалось открыть файл: %s\n", filename);
+        return 1;
+    }
+    Elf64_Ehdr ehdr;
+    if (fread(&ehdr, sizeof(ehdr), 1, f) != 1) {
+        fprintf(stderr, "[ARCH CHECK] Не удалось прочитать ELF header\n");
+        fclose(f);
+        return 1;
+    }
+    fclose(f);
+    if (ehdr.e_ident[EI_MAG0] != ELFMAG0 ||
+        ehdr.e_ident[EI_MAG1] != ELFMAG1 ||
+        ehdr.e_ident[EI_MAG2] != ELFMAG2 ||
+        ehdr.e_ident[EI_MAG3] != ELFMAG3) {
+        fprintf(stderr, "[ARCH CHECK] Файл не является ELF\n");
+        return 1;
+    }
+    if (ehdr.e_machine != EM_AARCH64) {
+        fprintf(stderr, "[ARCH CHECK] Только ARM64 ELF поддерживается!\n");
+        return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc >= 2 && strcmp(argv[1], "--update") == 0) {
         return run_update();
@@ -1894,6 +1922,11 @@ int main(int argc, char** argv) {
             return 0;
         } else {
             printf("Wayland test: ошибка инициализации!\n");
+            return 1;
+        }
+    }
+    if (argc >= 2 && argv[1][0] != '-') {
+        if (check_elf_arch(argv[1]) != 0) {
             return 1;
         }
     }
