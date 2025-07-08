@@ -55,12 +55,12 @@ You can update ARM64 Runner automatically from GitHub Releases:
 ## ARM64 Runner (Русский)
 
 **ARM64 Runner** — продвинутый эмулятор ARM64 ELF бинарников для Linux x86_64.  
-Поддерживает livepatch (горячий патчинг) кода во время выполнения и автоматическое обновление через GitHub Releases.
+Поддерживает горячий патчинг кода во время выполнения (livepatch) и автоматическое обновление через GitHub Releases.
 
 ### Основные возможности
 - Эмуляция ARM64 ELF-файлов на x86_64
-- Эмуляция системных вызовов Linux (поддерживается множество syscalls)
-- Система Livepatch для горячего патчинга инструкций во время работы
+- Эмуляция системных вызовов Linux (поддерживается множество системных вызовов)
+- Система горячего патчинга инструкций во время работы (Livepatch)
 - Безопасность: защита памяти, валидация адресов, отчёты об уязвимостях
 - Автоматическое обновление из GitHub Releases (**только tar.gz архивы**)
 - Примеры программ и тесты в комплекте
@@ -100,71 +100,71 @@ make test
 
 ---
 
-## Repository Structure / Структура репозитория
+### Структура репозитория
 
 ```
-src/        — emulator and Livepatch source code / исходный код эмулятора и Livepatch
-include/    — header files / заголовочные файлы
-examples/   — usage examples and test ELF binaries / примеры и тестовые ELF
-patches/    — patch files / файлы патчей
-tests/      — tests / тесты
-docs/       — documentation / документация
-deb_dist/   — deb package build / сборка deb-пакета
-Makefile    — build system / сборка
-README.md   — documentation / документация
+src/        — исходный код эмулятора и системы Livepatch
+include/    — заголовочные файлы
+examples/   — примеры использования и тестовые ELF-файлы
+patches/    — файлы патчей
+tests/      — тесты
+docs/       — документация
+deb_dist/   — сборка deb-пакета
+Makefile    — система сборки
+README.md   — документация
 ```
 
 ---
 
-## Livepatch System
+### Система Livepatch
 
-The Livepatch system allows you to apply patches to the emulated ARM64 code at runtime, without restarting the program.
+Система Livepatch позволяет применять патчи к эмулируемому ARM64-коду во время выполнения, без перезапуска программы.
 
-- Apply/revert patches at runtime
-- NOP and branch patches
-- Save/load patches from files
-- Thread safety, validation, statistics
+- Применение и откат патчей во время работы
+- Патчи типа NOP и переходы
+- Сохранение и загрузка патчей из файлов
+- Потокобезопасность, валидация, статистика
 
-See `livepatch.h` and `livepatch.c` for API and usage examples.
+Смотрите файлы `livepatch.h` и `livepatch.c` для примеров использования и API.
 
 ---
 
-## Automatic Update (update_module)
+### Автоматическое обновление (update_module)
 
-**How it works:**
-- Checks the latest release on GitHub.
-- Compares with your current version.
-- Downloads the correct **tar.gz** archive for your system.
-- Installs the update automatically.
+**Как это работает:**
+- Проверяет наличие последнего релиза на GitHub.
+- Сравнивает с вашей текущей версией.
+- Скачивает подходящий архив **tar.gz** для вашей системы.
+- Устанавливает обновление автоматически.
 
-**Usage:**
+**Использование:**
 ```bash
 ./update_module
 ```
 
-**Requirements:**
+**Требования:**
 - Linux x86_64
-- tar, gzip, and basic shell utilities
-- Internet connection
+- tar, gzip и базовые утилиты shell
+- Интернет-соединение
 
 ---
 
-## Requirements
-- GCC or compatible C compiler
-- POSIX system (Linux, macOS, BSD)
-- pthread library
-- libcurl, libcjson (for updater)
+### Требования
+- Компилятор GCC или совместимый
+- POSIX-совместимая система (Linux, macOS, BSD)
+- Библиотека pthread
+- libcurl, libcjson (для апдейтера)
 
 ---
 
-## License
+### Лицензия
 GNU GPL3v License
 
-## Author
-Livepatch system and ARM64 Runner emulator.
+### Автор
+Система Livepatch и эмулятор ARM64 Runner.
 
-## Support
-If you have issues:
-1. Run tests: `make test`
-2. Check the documentation
-3. Create an issue with a description on GitHub
+### Поддержка
+Если возникли проблемы:
+1. Запустите тесты: `make test`
+2. Ознакомьтесь с документацией
+3. Создайте issue с описанием на GitHub
