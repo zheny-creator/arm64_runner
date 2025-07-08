@@ -550,14 +550,14 @@ void interpret_arm64(Arm64State* state) {
                 uint8_t rt = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint16_t imm12 = (instr >> 10) & 0xFFF;
-                // ИСПРАВЛЕНИЕ: Проверяем переполнение при вычислении адреса
+                // FIX: Check for overflow when calculating address
                 uint64_t address;
                 if (state->x[rn] > UINT64_MAX - imm12) {
-                    raise_segfault(state, state->x[rn], 1, "переполнение адреса");
+                    raise_segfault(state, state->x[rn], 1, "address overflow");
                     break;
                 }
                 address = state->x[rn] + imm12;
-                if (address < state->base_addr) raise_segfault(state, address, 1, "запись");
+                if (address < state->base_addr) raise_segfault(state, address, 1, "write");
                 if (check_mem_bounds(state, address, 1)) {
                     *((uint8_t*)(state->memory + (address - state->base_addr))) = state->x[rt] & 0xFF;
                 }
@@ -637,12 +637,12 @@ void interpret_arm64(Arm64State* state) {
                 }
                 break;
             }
-            case 0x16: {  // FP операции для одинарной точности (S-регистры)
+            case 0x16: {  // FP operations for single precision (S-registers)
                 uint8_t type = (instr >> 22) & 0x3;
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
-                // Только для одинарной точности (S0-S31)
+                // Only for single precision (S0-S31)
                 if (type == 0) {
                     switch (instr & 0x3F) {
                         case 0x1A: // FADD S
@@ -666,7 +666,7 @@ void interpret_arm64(Arm64State* state) {
                             state->s[rd] = (state->s[rn] > state->s[rm]) ? state->s[rn] : state->s[rm];
                             break;
                         case 0x22: // FCMP S
-                            // Сравнение S-регистров: устанавливаем флаги NZCV
+                            // Compare S-registers: set NZCV flags
                             {
                                 float a = state->s[rn];
                                 float b = state->s[rm];
@@ -678,7 +678,7 @@ void interpret_arm64(Arm64State* state) {
                                 } else if (a < b) {
                                     nzcv = 0b1000 << 28; // N=1
                                 } else {
-                                    nzcv = 0b0000 << 28; // всё по нулям
+                                    nzcv = 0b0000 << 28; // all zeros
                                 }
                                 state->nzcv = nzcv;
                             }
@@ -871,7 +871,7 @@ void interpret_arm64(Arm64State* state) {
                 uint8_t rt2 = (instr >> 10) & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 int32_t offset = (instr >> 15) & 0x7FF;
-                offset <<= 3; // 64-бит, смещение в байтах
+                offset <<= 3; // 64-bit, offset in bytes
                 if (state->x[rn] > UINT64_MAX - (uint64_t)offset) {
                     raise_segfault(state, state->x[rn], 16, "переполнение адреса");
                     break;
@@ -889,7 +889,7 @@ void interpret_arm64(Arm64State* state) {
                 uint8_t rt2 = (instr >> 10) & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 int32_t offset = (instr >> 15) & 0x7FF;
-                offset <<= 3; // 64-бит, смещение в байтах
+                offset <<= 3; // 64-bit, offset in bytes
                 if (state->x[rn] > UINT64_MAX - (uint64_t)offset) {
                     raise_segfault(state, state->x[rn], 16, "переполнение адреса");
                     break;
@@ -1053,12 +1053,12 @@ void interpret_arm64(Arm64State* state) {
                 state->x[0] = -ENOSYS;
                 break;
             }
-            case 0x17: {  // FP операции для двойной точности (D-регистры)
+            case 0x17: {  // FP operations for double precision (D-registers)
                 uint8_t type = (instr >> 22) & 0x3;
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
-                // Только для двойной точности (D0-D31)
+                // Only for double precision (D0-D31)
                 if (type == 0) {
                     switch (instr & 0x3F) {
                         case 0x1A: // FADD D
@@ -1082,7 +1082,7 @@ void interpret_arm64(Arm64State* state) {
                             state->d[rd] = (state->d[rn] > state->d[rm]) ? state->d[rn] : state->d[rm];
                             break;
                         case 0x22: // FCMP D
-                            // Сравнение D-регистров: устанавливаем флаги NZCV
+                            // Compare D-registers: set NZCV flags
                             {
                                 double a = state->d[rn];
                                 double b = state->d[rm];
@@ -1094,7 +1094,7 @@ void interpret_arm64(Arm64State* state) {
                                 } else if (a < b) {
                                     nzcv = 0b1000 << 28; // N=1
                                 } else {
-                                    nzcv = 0b0000 << 28; // всё по нулям
+                                    nzcv = 0b0000 << 28; // all zeros
                                 }
                                 state->nzcv = nzcv;
                             }
@@ -1109,8 +1109,8 @@ void interpret_arm64(Arm64State* state) {
                 }
                 break;
             }
-            // --- NEON/векторные инструкции (Q-регистры, базовые, уникальные case) ---
-            case 0x8E: {  // NEON AND (Q) [уникальный case]
+            // --- NEON/vector instructions (Q-registers, base, unique case) ---
+            case 0x8E: {  // NEON AND (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1118,7 +1118,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = state->q[rn][1] & state->q[rm][1];
                 break;
             }
-            case 0x8F: {  // NEON ORR (Q) [уникальный case]
+            case 0x8F: {  // NEON ORR (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1126,7 +1126,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = state->q[rn][1] | state->q[rm][1];
                 break;
             }
-            case 0x9E: {  // NEON EOR (Q) [уникальный case]
+            case 0x9E: {  // NEON EOR (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1134,21 +1134,21 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = state->q[rn][1] ^ state->q[rm][1];
                 break;
             }
-            case 0x9F: {  // NEON DUP (Q) [уникальный case]
+            case 0x9F: {  // NEON DUP (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->q[rd][0] = state->x[rn];
                 state->q[rd][1] = state->x[rn];
                 break;
             }
-            case 0xAF: {  // NEON REV (Q) [уникальный case]
+            case 0xAF: {  // NEON REV (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->q[rd][0] = __builtin_bswap64(state->q[rn][1]);
                 state->q[rd][1] = __builtin_bswap64(state->q[rn][0]);
                 break;
             }
-            case 0xAE: {  // NEON ADD (Q) [уникальный case]
+            case 0xAE: {  // NEON ADD (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1156,7 +1156,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = state->q[rn][1] + state->q[rm][1];
                 break;
             }
-            case 0xBF: {  // NEON SUB (Q) [уникальный case]
+            case 0xBF: {  // NEON SUB (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1164,7 +1164,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = state->q[rn][1] - state->q[rm][1];
                 break;
             }
-            case 0xCF: {  // NEON MUL (Q) [уникальный case]
+            case 0xCF: {  // NEON MUL (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1172,7 +1172,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = state->q[rn][1] * state->q[rm][1];
                 break;
             }
-            case 0xC6: {  // NEON VCEQ (Q) [уникальный case]
+            case 0xC6: {  // NEON VCEQ (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1180,7 +1180,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = (state->q[rn][1] == state->q[rm][1]) ? ~0ULL : 0ULL;
                 break;
             }
-            case 0xC7: {  // NEON VCGE (Q) [уникальный case]
+            case 0xC7: {  // NEON VCGE (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1188,7 +1188,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = ((int64_t)state->q[rn][1] >= (int64_t)state->q[rm][1]) ? ~0ULL : 0ULL;
                 break;
             }
-            case 0xC8: {  // NEON VCGT (Q) [уникальный case]
+            case 0xC8: {  // NEON VCGT (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1196,7 +1196,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = ((int64_t)state->q[rn][1] > (int64_t)state->q[rm][1]) ? ~0ULL : 0ULL;
                 break;
             }
-            case 0xC9: {  // NEON VCLE (Q) [уникальный case]
+            case 0xC9: {  // NEON VCLE (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1204,7 +1204,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = ((int64_t)state->q[rn][1] <= (int64_t)state->q[rm][1]) ? ~0ULL : 0ULL;
                 break;
             }
-            case 0xCA: {  // NEON VCLT (Q) [уникальный case]
+            case 0xCA: {  // NEON VCLT (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1212,7 +1212,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = ((int64_t)state->q[rn][1] < (int64_t)state->q[rm][1]) ? ~0ULL : 0ULL;
                 break;
             }
-            // --- Системные инструкции ---
+            // --- System instructions ---
             case 0x0F: {  // NOP (ARM64: 0xD503201F)
                 // Просто ничего не делаем
                 break;
@@ -1222,7 +1222,7 @@ void interpret_arm64(Arm64State* state) {
                 if (debug_enabled) fprintf(stderr, "[SYS] MSR/MRS/DC/IC/HINT/WFE/WFI эмулированы/игнорированы, PC=0x%lX\n", state->pc-4);
                 break;
             }
-            case 0xB0: {  // NEON BIC (Q) [уникальный case]
+            case 0xB0: {  // NEON BIC (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1230,14 +1230,14 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = state->q[rn][1] & ~state->q[rm][1];
                 break;
             }
-            case 0xB1: {  // NEON NOT (Q) [уникальный case]
+            case 0xB1: {  // NEON NOT (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->q[rd][0] = ~state->q[rn][0];
                 state->q[rd][1] = ~state->q[rn][1];
                 break;
             }
-            case 0xB2: {  // NEON MIN (Q) [уникальный case]
+            case 0xB2: {  // NEON MIN (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1245,7 +1245,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = (state->q[rn][1] < state->q[rm][1]) ? state->q[rn][1] : state->q[rm][1];
                 break;
             }
-            case 0xB3: {  // NEON MAX (Q) [уникальный case]
+            case 0xB3: {  // NEON MAX (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1253,21 +1253,21 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = (state->q[rn][1] > state->q[rm][1]) ? state->q[rn][1] : state->q[rm][1];
                 break;
             }
-            case 0xB4: {  // NEON ABS (Q) [уникальный case]
+            case 0xB4: {  // NEON ABS (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->q[rd][0] = (state->q[rn][0] & 0x8000000000000000ULL) ? -((int64_t)state->q[rn][0]) : state->q[rn][0];
                 state->q[rd][1] = (state->q[rn][1] & 0x8000000000000000ULL) ? -((int64_t)state->q[rn][1]) : state->q[rn][1];
                 break;
             }
-            case 0xB5: {  // NEON NEG (Q) [уникальный case]
+            case 0xB5: {  // NEON NEG (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->q[rd][0] = -((int64_t)state->q[rn][0]);
                 state->q[rd][1] = -((int64_t)state->q[rn][1]);
                 break;
             }
-            case 0xB6: {  // NEON ZIP (Q) [уникальный case]
+            case 0xB6: {  // NEON ZIP (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1276,7 +1276,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = (state->q[rn][1] & 0xFFFFFFFFULL) | ((state->q[rm][1] & 0xFFFFFFFFULL) << 32);
                 break;
             }
-            case 0xB7: {  // NEON UZP (Q) [уникальный case]
+            case 0xB7: {  // NEON UZP (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1285,7 +1285,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = (state->q[rn][1] & 0xFFFFFFFFULL) | ((state->q[rm][1] & 0xFFFFFFFFULL) << 32);
                 break;
             }
-            case 0xB8: {  // NEON TRN (Q) [уникальный case]
+            case 0xB8: {  // NEON TRN (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1294,7 +1294,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = ((state->q[rn][1] & 0xFFFF0000ULL) >> 16) | ((state->q[rm][1] & 0xFFFF0000ULL));
                 break;
             }
-            case 0xB9: {  // NEON EXT (Q) [уникальный case]
+            case 0xB9: {  // NEON EXT (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = instr & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1303,7 +1303,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = (state->q[rn][1] & 0xFFFFFFFF00000000ULL) | (state->q[rm][1] & 0xFFFFFFFFULL);
                 break;
             }
-            case 0xBA: {  // NEON SHL (Q) [уникальный case]
+            case 0xBA: {  // NEON SHL (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t imm = (instr >> 16) & 0x1F;
@@ -1311,7 +1311,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = state->q[rn][1] << imm;
                 break;
             }
-            case 0xBB: {  // NEON SHR (Q) [уникальный case]
+            case 0xBB: {  // NEON SHR (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t imm = (instr >> 16) & 0x1F;
@@ -1319,57 +1319,57 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = state->q[rn][1] >> imm;
                 break;
             }
-            // --- FP расширения для S/D ---
-            case 0xBC: {  // FABS S [уникальный case]
+            // --- FP extensions for S/D ---
+            case 0xBC: {  // FABS S [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->s[rd] = fabsf(state->s[rn]);
                 break;
             }
-            case 0xBD: {  // FNEG S [уникальный case]
+            case 0xBD: {  // FNEG S [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->s[rd] = -state->s[rn];
                 break;
             }
-            case 0xBE: {  // FMOV S [уникальный case]
+            case 0xBE: {  // FMOV S [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->s[rd] = state->s[rn];
                 break;
             }
-            case 0xC0: {  // FABS D [уникальный case]
+            case 0xC0: {  // FABS D [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->d[rd] = fabs(state->d[rn]);
                 break;
             }
-            case 0xC1: {  // FNEG D [уникальный case]
+            case 0xC1: {  // FNEG D [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->d[rd] = -state->d[rn];
                 break;
             }
-            case 0xC2: {  // FMOV D [уникальный case]
+            case 0xC2: {  // FMOV D [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->d[rd] = state->d[rn];
                 break;
             }
-            case 0xC4: {  // FCVT S->D [уникальный case, исправлено]
+            case 0xC4: {  // FCVT S->D [unique case, corrected]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->d[rd] = (double)state->s[rn];
                 break;
             }
-            case 0xC5: {  // FCVT D->S [уникальный case, исправлено]
+            case 0xC5: {  // FCVT D->S [unique case, corrected]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->s[rd] = (float)state->d[rn];
                 break;
             }
             // --- END ---
-            case 0xCB: {  // NEON SLI (Q) [уникальный case]
+            case 0xCB: {  // NEON SLI (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t imm = (instr >> 16) & 0x1F;
@@ -1377,7 +1377,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = (state->q[rd][1] << imm) | (state->q[rn][1] & ((1ULL << imm) - 1));
                 break;
             }
-            case 0xCC: {  // NEON SRI (Q) [уникальный case]
+            case 0xCC: {  // NEON SRI (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t imm = (instr >> 16) & 0x1F;
@@ -1385,7 +1385,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = (state->q[rd][1] >> imm) | (state->q[rn][1] & (~0ULL << (64-imm)));
                 break;
             }
-            case 0xCD: {  // NEON SLL (Q) [уникальный case]
+            case 0xCD: {  // NEON SLL (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t imm = (instr >> 16) & 0x1F;
@@ -1393,7 +1393,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = state->q[rn][1] << imm;
                 break;
             }
-            case 0xCE: {  // NEON SRL (Q) [уникальный case]
+            case 0xCE: {  // NEON SRL (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t imm = (instr >> 16) & 0x1F;
@@ -1401,7 +1401,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = state->q[rn][1] >> imm;
                 break;
             }
-            case 0xD0: {  // NEON VEXT (Q) [уникальный case]
+            case 0xD0: {  // NEON VEXT (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
@@ -1410,7 +1410,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = (state->q[rn][1] & 0xFFFFFFFF00000000ULL) | (state->q[rm][1] & 0xFFFFFFFFULL);
                 break;
             }
-            case 0xD1: {  // NEON TBL (Q) [уникальный case]
+            case 0xD1: {  // NEON TBL (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 // Простейшая эмуляция: копируем rn
@@ -1418,7 +1418,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = state->q[rn][1];
                 break;
             }
-            case 0xD2: {  // NEON REV64 (Q) [уникальный case]
+            case 0xD2: {  // NEON REV64 (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 // Реверс 64-битных половин
@@ -1426,14 +1426,14 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = __builtin_bswap64(state->q[rn][1]);
                 break;
             }
-            case 0xD3: {  // FMOV immediate (S) [уникальный case]
+            case 0xD3: {  // FMOV immediate (S) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint32_t imm = (instr >> 5) & 0xFFFF;
                 // Простейшая эмуляция: просто записываем как float
                 state->s[rd] = *(float*)&imm;
                 break;
             }
-            case 0xD4: {  // MOVI (Q) [уникальный case]
+            case 0xD4: {  // MOVI (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint64_t imm = (instr >> 5) & 0xFFFFFFFFULL;
                 state->q[rd][0] = imm;
@@ -1441,28 +1441,28 @@ void interpret_arm64(Arm64State* state) {
                 break;
             }
             // --- Барьеры ---
-            case 0xD5: {  // ISB (Barrier) [уникальный case]
+            case 0xD5: {  // ISB (Barrier) [unique case]
                 // Просто игнорируем
                 break;
             }
-            case 0xD6: {  // DSB (Barrier) [уникальный case]
+            case 0xD6: {  // DSB (Barrier) [unique case]
                 // Просто игнорируем
                 break;
             }
-            case 0xD7: {  // DMB (Barrier) [уникальный case]
+            case 0xD7: {  // DMB (Barrier) [unique case]
                 // Просто игнорируем
                 break;
             }
             // --- Векторная память (эмуляция) ---
-            case 0xD8: {  // ST1 (Q) [уникальный case]
+            case 0xD8: {  // ST1 (Q) [unique case]
                 // Эмуляция: ничего не делаем
                 break;
             }
-            case 0xD9: {  // LD1 (Q) [уникальный case]
+            case 0xD9: {  // LD1 (Q) [unique case]
                 // Эмуляция: ничего не делаем
                 break;
             }
-            case 0xDA: {  // NEON REV32 (Q) [уникальный case]
+            case 0xDA: {  // NEON REV32 (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 // Реверс 32-битных половин
@@ -1470,7 +1470,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = __builtin_bswap32(state->q[rn][1] & 0xFFFFFFFF) | ((uint64_t)__builtin_bswap32((state->q[rn][1] >> 32) & 0xFFFFFFFF) << 32);
                 break;
             }
-            case 0xDB: {  // NEON REV16 (Q) [уникальный case]
+            case 0xDB: {  // NEON REV16 (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 // Реверс 16-битных четвертей
@@ -1482,7 +1482,7 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = r1;
                 break;
             }
-            case 0xDC: {  // NEON TBX (Q) [уникальный case]
+            case 0xDC: {  // NEON TBX (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 // Простейшая эмуляция: копируем rn
@@ -1491,24 +1491,24 @@ void interpret_arm64(Arm64State* state) {
                 break;
             }
             // --- Дополнительные барьеры и спец. инструкции ---
-            case 0xDD: {  // CLREX [уникальный case]
+            case 0xDD: {  // CLREX [unique case]
                 // Просто игнорируем
                 break;
             }
-            case 0xDE: {  // SEV [уникальный case]
+            case 0xDE: {  // SEV [unique case]
                 // Просто игнорируем
                 break;
             }
-            case 0xDF: {  // WFE [уникальный case]
+            case 0xDF: {  // WFE [unique case]
                 // Просто игнорируем
                 break;
             }
-            case 0xE0: {  // WFI [уникальный case]
+            case 0xE0: {  // WFI [unique case]
                 // Просто игнорируем
                 break;
             }
             // --- Расширения знака/беззнаковые ---
-            case 0xE1: {  // SXT (Sign Extend) [уникальный case]
+            case 0xE1: {  // SXT (Sign Extend) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t bits = (instr >> 16) & 0x1F;
@@ -1516,7 +1516,7 @@ void interpret_arm64(Arm64State* state) {
                 state->x[rd] = (val << (64 - bits)) >> (64 - bits);
                 break;
             }
-            case 0xE2: {  // UXT (Zero Extend) [уникальный case]
+            case 0xE2: {  // UXT (Zero Extend) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t bits = (instr >> 16) & 0x1F;
@@ -1524,70 +1524,70 @@ void interpret_arm64(Arm64State* state) {
                 break;
             }
             // --- MOVI для S/D ---
-            case 0xE3: {  // MOVI (S) [уникальный case]
+            case 0xE3: {  // MOVI (S) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint32_t imm = (instr >> 5) & 0xFFFFFFFF;
                 state->s[rd] = *(float*)&imm;
                 break;
             }
-            case 0xE4: {  // MOVI (D) [уникальный case]
+            case 0xE4: {  // MOVI (D) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint64_t imm = (instr >> 5) & 0xFFFFFFFFFFFFFFFFULL;
                 state->d[rd] = *(double*)&imm;
                 break;
             }
-            // --- Системные инструкции и расширенные барьеры ---
-            case 0xE5: {  // SMC (Secure Monitor Call) [уникальный case]
+            // --- System instructions and extended barriers ---
+            case 0xE5: {  // SMC (Secure Monitor Call) [unique case]
                 // Просто игнорируем, можно добавить debug-вывод
                 if (debug_enabled) fprintf(stderr, "[SYS] SMC эмулирована, PC=0x%lX\n", state->pc-4);
                 break;
             }
-            case 0xE6: {  // HVC (Hypervisor Call) [уникальный case]
+            case 0xE6: {  // HVC (Hypervisor Call) [unique case]
                 if (debug_enabled) fprintf(stderr, "[SYS] HVC эмулирована, PC=0x%lX\n", state->pc-4);
                 break;
             }
-            case 0xE7: {  // ERET (Exception Return) [уникальный case]
+            case 0xE7: {  // ERET (Exception Return) [unique case]
                 // Эмуляция возврата из исключения: просто завершаем выполнение
                 state->exited = 1;
                 break;
             }
-            case 0xE8: {  // SYS (System Register Access) [уникальный case]
+            case 0xE8: {  // SYS (System Register Access) [unique case]
                 // Просто игнорируем
                 break;
             }
-            case 0xE9: {  // SYSL (System Register Access, alternate) [уникальный case]
+            case 0xE9: {  // SYSL (System Register Access, alternate) [unique case]
                 // Просто игнорируем
                 break;
             }
-            case 0xEA: {  // AT (Address Translate) [уникальный case]
+            case 0xEA: {  // AT (Address Translate) [unique case]
                 // Просто игнорируем
                 break;
             }
-            case 0xEB: {  // TLBI (TLB Invalidate) [уникальный case]
+            case 0xEB: {  // TLBI (TLB Invalidate) [unique case]
                 // Просто игнорируем
                 break;
             }
             // --- Расширенные барьеры ---
-            case 0xEC: {  // DSB SY (Data Synchronization Barrier) [уникальный case]
+            case 0xEC: {  // DSB SY (Data Synchronization Barrier) [unique case]
                 // Просто игнорируем
                 break;
             }
-            case 0xED: {  // DMB ST (Data Memory Barrier) [уникальный case]
+            case 0xED: {  // DMB ST (Data Memory Barrier) [unique case]
                 // Просто игнорируем
                 break;
             }
             // --- Исключения и переходы между EL0/EL1 ---
-            case 0xEF: {  // Exception/EL change [уникальный case]
+            case 0xEF: {  // Exception/EL change [unique case]
                 // Эмуляция: просто debug-вывод
                 if (debug_enabled) fprintf(stderr, "[SYS] Exception/EL change эмулирована, PC=0x%lX\n", state->pc-4);
                 break;
             }
-            case 0xF0: {  // ISB SY (Instruction Synchronization Barrier) [уникальный case, исправлено]
+            case 0xF0: {  // ISB SY (Instruction Synchronization Barrier) [unique case, corrected]
                 // Просто игнорируем
                 break;
             }
             // --- Исключения и переходы между EL0/EL1 ---
-            case 0xF1: {  // Exception/EL change [уникальный case, исправлено]
+            case 0xF1: {  // Exception/EL change [unique case, corrected]
                 // Эмуляция: просто debug-вывод
                 if (debug_enabled) fprintf(stderr, "[SYS] Exception/EL change эмулирована, PC=0x%lX\n", state->pc-4);
                 break;
