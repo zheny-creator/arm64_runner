@@ -15,7 +15,7 @@ LDFLAGS = -lpthread -lssl -lcrypto
 LDLIBS += -lcurl
 
 # Основные цели
-TARGETS = arm64_runner update_module livepatch
+TARGETS = arm64_runner update_module
 
 # Объектные файлы
 LIVEPATCH_OBJS = src/livepatch.o
@@ -26,7 +26,7 @@ SRC_NOUPDATE = src/arm64_runner.c modules/livepatch.c
 BIN = arm64_runner
 
 # Правила по умолчанию
-all: arm64_runner update_module
+all: arm64_runner update_module livepatch
 
 # Компиляция ARM64 Runner
 $(BIN): $(SRC)
@@ -131,8 +131,7 @@ SOURCE_DIR = .
 $(SOURCE_ARCHIVE): arm64_runner update_module livepatch
 	@rm -rf arm64-runner-1.0
 	mkdir -p arm64-runner-1.0
-	cp -r src modules include Makefile README.md docs LICENSE MPL-2.0.txt arm64-runner.spec arm64_runner update_module livepatch arm64-runner-1.0/
-	if [ -d patches ]; then cp -r patches arm64-runner-1.0/; fi
+	cp arm64_runner update_module livepatch arm64-runner-1.0/
 	tar czf $(SOURCE_ARCHIVE) arm64-runner-1.0
 	rm -rf arm64-runner-1.0
 
@@ -149,7 +148,12 @@ rpm-noupdate: all-noupdate rpm-prep
 all-noupdate:
 	$(CC) $(CFLAGS) -DNO_UPDATE_MODULE $(SRC_NOUPDATE) -o $(BIN) $(LDFLAGS)
 
+# Сборка отдельного бинарника Livepatch
+# Собирает только демонстрационный livepatch (без runner и update_module)
 livepatch: src/livepatch_main.c modules/livepatch.o
 	$(CC) $(CFLAGS) -Iinclude src/livepatch_main.c modules/livepatch.o -o livepatch $(LDFLAGS)
+
+tar.gz: $(SOURCE_ARCHIVE)
+	@echo "Готово: $(SOURCE_ARCHIVE)"
 
 .PHONY: all clean install test demo create-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 
