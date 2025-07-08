@@ -4,99 +4,104 @@
 
 ---
 
-# ARM64 Runner (English)
+## ARM64 Runner (English)
 
-**ARM64 Runner** is an advanced ARM64 ELF binary emulator for Linux x86_64. It supports livepatching (hot patching) of emulated code at runtime and automatic self-update via GitHub Releases.
+**ARM64 Runner** is an advanced ARM64 ELF binary emulator for Linux x86_64.  
+It supports livepatching (hot patching) of emulated code at runtime and automatic self-update via GitHub Releases.
 
-## Key Features
+### Key Features
 - Emulation of ARM64 ELF binaries on x86_64
-- Linux syscall emulation
-- Livepatch system for hot patching instructions
+- Linux syscall emulation (with many syscalls supported)
+- Livepatch system for hot patching instructions at runtime
 - Security: memory protection, address validation, vulnerability reports
-- Automatic update from GitHub Releases
-- Example programs and test suite
+- Automatic update from GitHub Releases (tar.gz archives only)
+- Example programs and test suite included
 
-## Quick Start
+### Quick Start
 
-### Build
+#### Build
 ```bash
 make
 ```
 
-### Run ARM64 Runner
+#### Run ARM64 Runner
 ```bash
-./arm64_runner <arm64-elf-binary> [--trace] [--patches <patchfile>]
+./arm64_runner <arm64-elf-binary> [--trace] [--patches <patchfile>] [--debug]
 ```
 - `--trace` — enable instruction tracing
 - `--patches` — apply patches from file at startup
+- `--debug` — enable detailed debug output
 
-### Example
+#### Example
 ```bash
 ./arm64_runner examples/livepatch_example
 ```
 
-### Run tests
+#### Run tests
 ```bash
 make test
 ```
 
-### Update the Program (Automatic Updater)
+#### Update the Program (Automatic Updater)
 You can update ARM64 Runner automatically from GitHub Releases:
 ```bash
 ./update_module
 ```
-- The updater will check the latest release, download the appropriate `.deb` or `.rpm` package, and install it.
-- Works on any Linux with `dpkg` or `rpm`.
+- The updater will check the latest release, download the appropriate **tar.gz** archive, and install it.
+- Works on any Linux with basic tar and shell utilities.
 
 ---
 
-# ARM64 Runner (Русский)
+## ARM64 Runner (Русский)
 
-**ARM64 Runner** — продвинутый эмулятор ARM64 ELF бинарников для Linux x86_64. Поддерживает livepatch (горячий патчинг) кода во время выполнения и автоматическое обновление через GitHub Releases.
+**ARM64 Runner** — продвинутый эмулятор ARM64 ELF бинарников для Linux x86_64.  
+Поддерживает livepatch (горячий патчинг) кода во время выполнения и автоматическое обновление через GitHub Releases.
 
-## Основные возможности
+### Основные возможности
 - Эмуляция ARM64 ELF-файлов на x86_64
-- Эмуляция системных вызовов Linux
-- Система Livepatch для горячего патчинга инструкций
+- Эмуляция системных вызовов Linux (поддерживается множество syscalls)
+- Система Livepatch для горячего патчинга инструкций во время работы
 - Безопасность: защита памяти, валидация адресов, отчёты об уязвимостях
-- Автоматическое обновление из GitHub Releases
-- Примеры программ и тесты
+- Автоматическое обновление из GitHub Releases (**только tar.gz архивы**)
+- Примеры программ и тесты в комплекте
 
-## Быстрый старт
+### Быстрый старт
 
-### Сборка
+#### Сборка
 ```bash
 make
 ```
 
-### Запуск ARM64 Runner
+#### Запуск ARM64 Runner
 ```bash
-./arm64_runner <arm64-elf-binary> [--trace] [--patches <patchfile>]
+./arm64_runner <arm64-elf-binary> [--trace] [--patches <patchfile>] [--debug]
 ```
 - `--trace` — включить трассировку инструкций
 - `--patches` — применить патчи из файла при запуске
+- `--debug` — подробный отладочный вывод
 
-### Пример запуска
+#### Пример запуска
 ```bash
 ./arm64_runner examples/livepatch_example
 ```
 
-### Запуск тестов
+#### Запуск тестов
 ```bash
 make test
 ```
 
-### Обновление программы (автоматически)
+#### Обновление программы (автоматически)
 Для автоматического обновления из GitHub Releases:
 ```bash
 ./update_module
 ```
-- Апдейтер сам определит вашу систему, скачает нужный `.deb` или `.rpm` и установит его.
-- Работает на любом Linux с `dpkg` или `rpm`.
+- Апдейтер сам определит вашу систему, скачает нужный **tar.gz** архив и установит его.
+- Работает на любом Linux с базовыми утилитами tar и shell.
 
 ---
 
 ## Repository Structure / Структура репозитория
+
 ```
 src/        — emulator and Livepatch source code / исходный код эмулятора и Livepatch
 include/    — header files / заголовочные файлы
@@ -129,7 +134,7 @@ See `livepatch.h` and `livepatch.c` for API and usage examples.
 **How it works:**
 - Checks the latest release on GitHub.
 - Compares with your current version.
-- Downloads the correct package for your system (`.deb` or `.rpm`).
+- Downloads the correct **tar.gz** archive for your system.
 - Installs the update automatically.
 
 **Usage:**
@@ -139,7 +144,7 @@ See `livepatch.h` and `livepatch.c` for API and usage examples.
 
 **Requirements:**
 - Linux x86_64
-- `dpkg` or `rpm` installed
+- tar, gzip, and basic shell utilities
 - Internet connection
 
 ---
