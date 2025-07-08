@@ -1868,7 +1868,37 @@ static int check_elf_arch(const char* filename) {
     return 0;
 }
 
+static int is_restricted_distro() {
+    FILE* f = fopen("/etc/os-release", "r");
+    if (!f) return 0;
+    char line[256];
+    int is_astra = 0, is_red = 0;
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "ID=", 3) == 0) {
+            char* id = line + 3;
+            size_t len = strlen(id);
+            if (id[len-1] == '\n') id[len-1] = 0;
+            if (strcmp(id, "astra") == 0) is_astra = 1;
+            if (strcmp(id, "redos") == 0 || strcmp(id, "redos") == 0 || strcmp(id, "red") == 0) is_red = 1;
+        }
+        if (strncmp(line, "NAME=", 5) == 0) {
+            if (strstr(line, "Astra Linux")) is_astra = 1;
+            if (strstr(line, "RED OS")) is_red = 1;
+        }
+    }
+    fclose(f);
+    return is_astra || is_red;
+}
+
 int main(int argc, char** argv) {
+    if (is_restricted_distro()) {
+        fprintf(stderr, "\n============================================================\n");
+        fprintf(stderr, "[ОШИБКА] Эта программа НЕ поддерживается и НЕ предназначена для Astra Linux и RED OS!\n");
+        fprintf(stderr, "[ERROR] This program is NOT supported and NOT intended for Astra Linux or RED OS!\n");
+        fprintf(stderr, "\nИспользование на этих дистрибутивах категорически не рекомендуется.\n");
+        fprintf(stderr, "Use on these distributions is strongly discouraged.\n");
+        fprintf(stderr, "============================================================\n\n");
+    }
     if (argc >= 2 && strcmp(argv[1], "--update") == 0) {
         return run_update();
     }
