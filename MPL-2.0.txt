@@ -11,6 +11,8 @@ The following files are licensed under the Mozilla Public License 2.0 (MPL 2.0):
 - modules/update_module.c
 - include/update_module.h
 - include/livepatch.h
+- src/livepatch_main.c
+- src/update_main.c
 
 See https://www.mozilla.org/en-US/MPL/2.0/ for details.
 
