@@ -11,6 +11,8 @@
 #define _POSIX_C_SOURCE 200809L
 #include <sys/wait.h>
 #include <getopt.h>
+#include <dirent.h>
+#include <sys/types.h>
 #define RUNNER_VERSION "1.1-rc2"
 
 // --- Структуры и таблицы ---
@@ -157,6 +159,41 @@ void base64_decode(const char* input, unsigned char* output, size_t* out_len) {
   }
 }
 
+// --- Вспомогательная функция для поиска .tar.gz архива в assets ---
+static int find_tar_gz_asset(const char* json, char* out_url, size_t url_size, char* out_name, size_t name_size) {
+    cJSON* root = cJSON_Parse(json);
+    if (!root) return 1;
+    cJSON* assets = NULL;
+    // Если это массив (RC режим) — берём первый элемент
+    if (cJSON_IsArray(root)) {
+        cJSON* first = cJSON_GetArrayItem(root, 0);
+        if (!first) { cJSON_Delete(root); return 1; }
+        assets = cJSON_GetObjectItem(first, "assets");
+    } else {
+        assets = cJSON_GetObjectItem(root, "assets");
+    }
+    if (!assets || !cJSON_IsArray(assets)) { cJSON_Delete(root); return 1; }
+    int found = 0;
+    cJSON* asset = NULL;
+    cJSON_ArrayForEach(asset, assets) {
+        cJSON* name = cJSON_GetObjectItem(asset, "name");
+        cJSON* url = cJSON_GetObjectItem(asset, "browser_download_url");
+        if (name && url && cJSON_IsString(name) && cJSON_IsString(url)) {
+            const char* n = name->valuestring;
+            if (strstr(n, ".tar.gz")) {
+                strncpy(out_url, url->valuestring, url_size-1);
+                out_url[url_size-1] = 0;
+                strncpy(out_name, n, name_size-1);
+                out_name[name_size-1] = 0;
+                found = 1;
+                break;
+            }
+        }
+    }
+    cJSON_Delete(root);
+    return found ? 0 : 1;
+}
+
 // --- Основные функции модуля ---
 
 void update_detect_distro(UpdateParams* params) {
@@ -191,40 +228,49 @@ void update_get_url(UpdateParams* params) {
         params->filename[0] = 0;
         return;
     }
-    // Сначала пробуем tar.gz
-    snprintf(params->filename, sizeof(params->filename), "Arm64_Runner.tar.gz");
-    snprintf(params->url, sizeof(params->url),
-        "https://github.com/zheny-creator/arm64_runner/releases/download/%s/%s",
-        tag, params->filename);
-    // Проверяем HEAD-запросом, существует ли tar.gz
-    char check_cmd[512];
-    snprintf(check_cmd, sizeof(check_cmd), "curl -sI '%s' | grep -q '^HTTP/.* 200'", params->url);
-    int tar_exists = system(check_cmd);
-    if (tar_exists != 0) {
-        // Если tar.gz нет, ищем deb или rpm
-        const char* alt_exts[] = {"deb", "rpm"};
-        int found = 0;
-        for (int i = 0; i < 2; ++i) {
-            snprintf(params->filename, sizeof(params->filename), "Arm64_Runner.%s", alt_exts[i]);
-            snprintf(params->url, sizeof(params->url),
-                "https://github.com/zheny-creator/arm64_runner/releases/download/%s/%s",
-                tag, params->filename);
-            snprintf(check_cmd, sizeof(check_cmd), "curl -sI '%s' | grep -q '^HTTP/.* 200'", params->url);
-            if (system(check_cmd) == 0) {
-                found = 1;
-                break;
-            }
-        }
-        if (found) {
-            printf("[Update] Найден только пакет .deb или .rpm.\n");
-            printf("[Update] Поддержка deb/rpm больше не осуществляется. Используйте tar.gz архив.\n");
-        } else {
-            printf("[Update] Не найден ни tar.gz, ни deb/rpm архив для последнего релиза!\n");
-        }
+    // --- Новый способ: скачиваем JSON релиза и ищем .tar.gz ---
+    struct MemoryStruct chunk = {0};
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        printf("[Update] Ошибка инициализации curl!\n");
         params->url[0] = 0;
         params->filename[0] = 0;
         return;
     }
+    char api_url[256];
+    if (update_rc_mode) {
+        snprintf(api_url, sizeof(api_url), "https://api.github.com/repos/zheny-creator/arm64_runner/releases?per_page=5");
+    } else {
+        snprintf(api_url, sizeof(api_url), "https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest");
+    }
+    curl_easy_setopt(curl, CURLOPT_URL, api_url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "arm64_runner");
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    CURLcode res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+    if (res != CURLE_OK || !chunk.memory) {
+        printf("[Update] Ошибка загрузки информации о релизе с GitHub!\n");
+        params->url[0] = 0;
+        params->filename[0] = 0;
+        if (chunk.memory) free(chunk.memory);
+        return;
+    }
+    char found_url[512] = {0};
+    char found_name[128] = {0};
+    if (find_tar_gz_asset(chunk.memory, found_url, sizeof(found_url), found_name, sizeof(found_name)) != 0) {
+        printf("[Update] Не найден ни один архив .tar.gz в релизе!\n");
+        params->url[0] = 0;
+        params->filename[0] = 0;
+        free(chunk.memory);
+        return;
+    }
+    strncpy(params->url, found_url, sizeof(params->url)-1);
+    params->url[sizeof(params->url)-1] = 0;
+    strncpy(params->filename, found_name, sizeof(params->filename)-1);
+    params->filename[sizeof(params->filename)-1] = 0;
+    free(chunk.memory);
 }
 
 #ifndef _GNU_SOURCE
@@ -283,15 +329,60 @@ int update_verify(const UpdateParams* params) {
 }
 
 int update_extract(const UpdateParams* params) {
+    char tmpdir[64] = "tmp_update_unpack";
     char cmd[512];
-    snprintf(cmd, sizeof(cmd), "tar -xzf '%s'", params->filename);
-    printf("[Update] Распаковка архива: %s\n", cmd);
+    snprintf(cmd, sizeof(cmd), "rm -rf %s && mkdir -p %s", tmpdir, tmpdir);
+    system(cmd);
+    snprintf(cmd, sizeof(cmd), "tar -xzf '%s' -C %s", params->filename, tmpdir);
+    printf("[Update] Распаковка архива во временную папку: %s\n", cmd);
     int res = system(cmd);
     if (res != 0) {
         printf("[Update] Ошибка распаковки архива!\n");
+        snprintf(cmd, sizeof(cmd), "rm -rf %s", tmpdir);
+        system(cmd);
         return 1;
     }
-    printf("[Update] Архив успешно распакован в текущую директорию.\n");
+    // Найти первую вложенную папку внутри tmpdir
+    DIR* d = opendir(tmpdir);
+    struct dirent* entry;
+    char subdir[128] = "";
+    while ((entry = readdir(d)) != NULL) {
+        if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+            char path[256];
+            snprintf(path, sizeof(path), "%s/%s", tmpdir, entry->d_name);
+            struct stat st;
+            if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+                strncpy(subdir, entry->d_name, sizeof(subdir)-1);
+                subdir[sizeof(subdir)-1] = 0;
+                break;
+            }
+        }
+    }
+    closedir(d);
+    if (subdir[0]) {
+        // Копируем содержимое subdir в текущую директорию
+        snprintf(cmd, sizeof(cmd), "cp -rf %s/%s/* .", tmpdir, subdir);
+        printf("[Update] Копирование файлов из %s/%s/ в текущую директорию...\n", tmpdir, subdir);
+        res = system(cmd);
+    } else {
+        // Если нет вложенной папки, копируем всё из tmpdir
+        snprintf(cmd, sizeof(cmd), "cp -rf %s/* .", tmpdir);
+        printf("[Update] Копирование файлов из %s/ в текущую директорию...\n", tmpdir);
+        res = system(cmd);
+    }
+    snprintf(cmd, sizeof(cmd), "rm -rf %s", tmpdir);
+    system(cmd);
+    if (res != 0) {
+        printf("[Update] Ошибка копирования файлов!\n");
+        return 1;
+    }
+    printf("[Update] Архив успешно распакован и файлы обновлены в текущей директории.\n");
+    // Удаляем архив после обновления
+    if (remove(params->filename) == 0) {
+        printf("[Update] Архив %s удалён после обновления.\n", params->filename);
+    } else {
+        printf("[Update] Не удалось удалить архив %s!\n", params->filename);
+    }
     return 0;
 }
 

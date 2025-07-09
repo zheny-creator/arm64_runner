@@ -30,7 +30,7 @@ all: arm64_runner update_module livepatch
 
 # Компиляция ARM64 Runner
 $(BIN): $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS) -lwayland-client -lm
+	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS) -lwayland-client -lm -lcjson
 
 # Компиляция объектных файлов
 src/%.o: src/%.c
@@ -43,7 +43,7 @@ modules/update_module.o: modules/update_module.c include/update_module.h
 	$(CC) $(CFLAGS) -Iinclude -c modules/update_module.c -o modules/update_module.o
 
 update_module: src/update_main.c modules/update_module.o
-	$(CC) $(CFLAGS) -Iinclude src/update_main.c modules/update_module.o -o update_module $(LDFLAGS) $(LDLIBS)
+	$(CC) $(CFLAGS) -Iinclude src/update_main.c modules/update_module.o -o update_module $(LDFLAGS) $(LDLIBS) -lcjson
 
 # Очистка
 clean:
