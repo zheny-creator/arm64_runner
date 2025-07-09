@@ -48,9 +48,16 @@ update_module: src/update_main.c modules/update_module.o
 # Очистка
 clean:
 	rm -f $(TARGETS)
-	rm -f src/*.o
-	rm -f patches/*.txt patches/*.bin security_patches.txt
 	rm -f $(BIN)
+	rm -f livepatch
+	rm -f src/*.o modules/*.o
+	rm -f patches/*.txt patches/*.bin security_patches.txt
+	rm -f arm64-runner-1.0.tar.gz
+	rm -rf arm64-runner-1.0
+	rm -rf deb_dist
+	rm -rf rpm_buildroot
+	rm -f tests/test_basic tests/hello_x86
+	rm -f update_module
 
 # Установка
 install: all
