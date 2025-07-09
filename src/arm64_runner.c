@@ -220,28 +220,7 @@ void interpret_arm64(Arm64State* state) {
             exit(1);
         }
         if (state->pc < state->base_addr || state->pc >= state->base_addr + state->mem_size) {
-            if (debug_enabled) fprintf(stderr, "[SIGSEGV] PC out of code bounds! PC=0x%lX, BASE=0x%lX, MEMSZ=0x%lX\n", state->pc, state->base_addr, state->mem_size);
-            // Memory dump around PC
-            uint64_t pc_dump = state->pc - state->base_addr;
-            int dump_start = (int)pc_dump - 16;
-            if (dump_start < 0) dump_start = 0;
-            int dump_end = (int)pc_dump + 32;
-            if (dump_end > (int)state->mem_size) dump_end = (int)state->mem_size;
-            if (debug_enabled) {
-                fprintf(stderr, "[MEM DUMP] ");
-                for (int i = dump_start; i < dump_end; ++i) {
-                    fprintf(stderr, "%02X ", state->memory[i]);
-                }
-                fprintf(stderr, "\n");
-            }
-            raise_segfault(state, state->pc, 0, "read");
-        }
-        
-        // Additional check: are we trying to execute data?
-        // If PC points to area after entry + 0x200, we consider it data
-        if (state->pc > state->entry + 0x200) {
-            if (debug_enabled) fprintf(stderr, "[WARNING] PC (0x%lX) points to data area! Entry=0x%lX\n", state->pc, state->entry);
-            if (debug_enabled) fprintf(stderr, "[DEBUG] Program finished correctly\n");
+            if (debug_enabled) fprintf(stderr, "[INFO] PC (0x%lX) вышел за пределы кода! BASE=0x%lX, MEMSZ=0x%lX\n", state->pc, state->base_addr, state->mem_size);
             state->exited = 1;
             state->exit_code = 0;
             return;
@@ -714,54 +693,25 @@ void interpret_arm64(Arm64State* state) {
                 break;
             }
             case 0x35: {
-                // Проверяем, ветвление это или wide immediate
-                // Для CBZ/CBNZ: [31:24]=0b10110100 (0xB4) или 0b10110101 (0xB5)
-                // Для MOVZ/MOVN/MOVK: [31:29]=0b1101/0b1001/0b1111 и т.д.
                 uint32_t top8 = (instr >> 24) & 0xFF;
                 if (top8 == 0xB4 || top8 == 0xB5) {
-                    // Это CBZ/CBNZ
+                    // CBZ/CBNZ
                     uint8_t rt = instr & 0x1F;
                     int32_t offset = (instr >> 5) & 0x7FFFF;
                     offset = (offset << 13) >> 11; // Sign extend 19-bit
-                    int take_branch = 0;
-                    if (opcode == 0x34) { // CBZ
-                        take_branch = (state->x[rt] == 0);
-                    } else { // CBNZ
-                        take_branch = (state->x[rt] != 0);
-                    }
+                    int take_branch = (top8 == 0xB4) ? (state->x[rt] == 0) : (state->x[rt] != 0);
                     if (take_branch) {
                         state->pc += offset - 4;
                     }
                 } else {
-                    // MOVZ/MOVN/MOVK/SVC — существующая логика
-                    if (opcode == 0x34) {
-                        uint8_t hw = (instr >> 21) & 0x3;
-                        uint16_t imm16 = (instr >> 5) & 0xFFFF;
-                        uint8_t rd = instr & 0x1F;
-                        if (hw == 2) { // MOVZ
-                            uint64_t value = (uint64_t)imm16 << (hw * 16);
-                            state->x[rd] = value;
-                        } else if (hw == 0) { // MOVN
-                            uint64_t value = ~((uint64_t)imm16 << (hw * 16));
-                            state->x[rd] = value;
-                        } else if (hw == 3) { // MOVK
-                            uint64_t mask = ~(0xFFFFULL << (hw * 16));
-                            state->x[rd] = (state->x[rd] & mask) | ((uint64_t)imm16 << (hw * 16));
-                        } else {
-                            if (debug_enabled) fprintf(stderr, "Unknown wide immediate (MOVZ/MOVN/MOVK) hw=%u at 0x%lX\n", hw, state->pc - 4);
-                            exit(1);
-                        }
-                    } else if (opcode == 0x35) {
-                        // SVC (system call)
-                        uint16_t svc_num = (instr >> 5) & 0xFFFF;
-                        if (debug_enabled) {
-                            printf("[SVC] PC=0x%lX X0=0x%lX X1=0x%lX X2=0x%lX X8=0x%lX\n", state->pc - 4, state->x[0], state->x[1], state->x[2], state->x[8]);
-                            printf("[DEBUG] SVC called at PC=0x%lX, svc_num=%u\n", state->pc - 4, svc_num);
-                        }
-                        handle_syscall(state, svc_num);
-                        if (state->exited) return; // Немедленно выйти из interpret_arm64 после SVC exit
-                        break;
+                    // SVC (system call)
+                    uint16_t svc_num = (instr >> 5) & 0xFFFF;
+                    if (debug_enabled) {
+                        printf("[SVC] PC=0x%lX X0=0x%lX X1=0x%lX X2=0x%lX X8=0x%lX\n", state->pc - 4, state->x[0], state->x[1], state->x[2], state->x[8]);
+                        printf("[DEBUG] SVC called at PC=0x%lX, svc_num=%u\n", state->pc - 4, svc_num);
                     }
+                    handle_syscall(state, svc_num);
+                    if (state->exited) return;
                 }
                 break;
             }
@@ -1703,6 +1653,37 @@ void interpret_arm64(Arm64State* state) {
                 state->x[rd] = crc;
                 break;
             }
+            case 0x3C: {  // SUBS (immediate), используется для CMP xN, #imm
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint16_t imm = (instr >> 10) & 0xFFF;
+                uint64_t op1 = state->x[rn];
+                uint64_t op2 = imm;
+                uint64_t result = op1 - op2;
+                set_nzcv(state, result, op1, op2, 1, 1, 1);
+                if (rd != 31) state->x[rd] = result; // если не xzr
+                break;
+            }
+            case 0x1A: {  // SUBS (register), используется для CMP xN, xM
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                uint64_t op1 = state->x[rn];
+                uint64_t op2 = state->x[rm];
+                uint64_t result = op1 - op2;
+                set_nzcv(state, result, op1, op2, 1, 1, 1);
+                if (rd != 31) state->x[rd] = result; // если не xzr
+                break;
+            }
+            case 0x15: {  // B.cond (условный переход)
+                int32_t offset = (instr >> 5) & 0x7FFFF;
+                offset = (offset << 13) >> 11; // Sign extend 19-bit
+                uint8_t cond = instr & 0xF;
+                if (check_cond(state->nzcv, cond)) {
+                    state->pc += offset - 4;
+                }
+                break;
+            }
             default: {
                 int ascii_count = 0;
                 // Проверяем, не лежит ли по адресу PC-4 ASCII-строка (printable)
@@ -1785,7 +1766,9 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
                         if (c < 0x09 || (c > 0x0D && c < 0x20) || c > 0x7E) { printable = 0; break; }
                     }
                     if (printable) {
-                        printf("[WRITE STRING] \"%.*s\"\n", (int)size, (char*)(state->memory + (buf_addr - state->base_addr)));
+                        for (uint64_t i = 0; i < size; ++i) {
+                            putchar(state->memory[buf_addr - state->base_addr + i]);
+                        }
                         fflush(stdout);
                     }
                 }
@@ -1861,7 +1844,9 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
             break;
         }
         case 57:  // close
-            if (state->x[0] >= 3 && state->x[0] < MAX_FDS) {
+            if (state->x[0] < 3) {
+                state->x[0] = 0; // успех, не закрываем стандартные потоки
+            } else if (state->x[0] < MAX_FDS) {
                 close_fd(state->x[0]);
                 state->x[0] = 0;
             } else {
@@ -1893,7 +1878,7 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
                 state->heap_end = new_brk;
                 state->x[0] = state->heap_end;
             } else {
-                state->x[0] = 0; // ошибка
+                state->x[0] = state->heap_end; // ошибка — вернуть текущее значение
             }
             break;
         }
@@ -2321,11 +2306,13 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
         {
             int old_fd = get_real_fd(state->x[0]);
             int new_fd = state->x[1];
-            
             if (old_fd >= 0) {
                 int res = dup2(old_fd, new_fd);
                 if (res >= 0) {
                     state->x[0] = new_fd;
+                    if (new_fd >= 3 && new_fd < MAX_FDS) {
+                        fd_table[new_fd] = old_fd;
+                    }
                 } else {
                     state->x[0] = -errno;
                 }
@@ -2407,6 +2394,7 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
             state->exited = 0;
             state->exit_code = 0;
             // После execve: PC будет установлен в load_elf
+            state->pc = state->entry;
             break;
         }
         
@@ -2533,22 +2521,22 @@ void load_elf(Arm64State* state, const char* filename) {
             if (phdr.p_vaddr < min_addr) {
                 min_addr = phdr.p_vaddr;
             }
-            
             // Загрузить сегмент
             if (debug_enabled) printf("Loading PT_LOAD segment %d: vaddr=0x%lX, memsz=0x%lX, filesz=0x%lX, offset=0x%lX\n", 
                    i, phdr.p_vaddr, phdr.p_memsz, phdr.p_filesz, phdr.p_offset);
-            
             // Временно сохранить позицию в program headers
             long ph_pos = ftell(file);
-            
-            // Загрузить данные сегмента
-            fseek(file, phdr.p_offset, SEEK_SET);
-            if (fread(state->memory + (phdr.p_vaddr - min_addr), phdr.p_filesz, 1, file) != 1) {
-                if (debug_enabled) fprintf(stderr, "Failed to load segment\n");
-                exit(1);
+            // Загрузить данные сегмента, если есть что грузить
+            if (phdr.p_filesz > 0) {
+                fseek(file, phdr.p_offset, SEEK_SET);
+                if (fread(state->memory + (phdr.p_vaddr - min_addr), phdr.p_filesz, 1, file) != 1) {
+                    if (debug_enabled) fprintf(stderr, "Failed to load segment\n");
+                    exit(1);
+                }
+                if (debug_enabled) printf("Loaded %lu bytes at offset 0x%lX in memory\n", 
+                       phdr.p_filesz, phdr.p_vaddr - min_addr);
             }
-            if (debug_enabled) printf("Loaded %lu bytes at offset 0x%lX in memory\n", 
-                   phdr.p_filesz, phdr.p_vaddr - min_addr);
+            // Zero-fill остаток (или весь сегмент, если filesz==0)
             if (phdr.p_filesz < phdr.p_memsz) {
                 memset(state->memory + (phdr.p_vaddr - min_addr) + phdr.p_filesz, 
                       0, phdr.p_memsz - phdr.p_filesz);
@@ -2556,7 +2544,6 @@ void load_elf(Arm64State* state, const char* filename) {
                        phdr.p_memsz - phdr.p_filesz, 
                        (phdr.p_vaddr - min_addr) + phdr.p_filesz);
             }
-            
             // Вернуться к позиции в program headers
             fseek(file, ph_pos, SEEK_SET);
         }
@@ -2658,11 +2645,11 @@ int main(int argc, char** argv) {
         return run_update();
     }
     if (argc >= 2 && (strcmp(argv[1], "--about") == 0 || strcmp(argv[1], "--version") == 0)) {
-        printf("ARM64 Runner v1.1-rc2\nАвтор: Женя Бородин\nИнтерпретатор ARM64 ELF бинарников для Linux x86_64\n");
+        printf("ARM64 Runner v1.1-rc3\nАвтор: Женя Бородин\nИнтерпретатор ARM64 ELF бинарников для Linux x86_64\n");
         return 0;
     }
     if (argc >= 2 && (strcmp(argv[1], "--help") == 0)) {
-        printf("ARM64 Runner v1.1-rc2\n");
+        printf("ARM64 Runner v1.1-rc3\n");
         printf("Использование: %s <arm64-elf-binary> [--trace] [--patches <file>] [--debug]\n", argv[0]);
         printf("Опции:\n");
         printf("  --help        Показать эту справку\n");
