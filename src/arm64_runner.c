@@ -48,6 +48,7 @@ void interpret_arm64(Arm64State* state);
 void dump_registers(Arm64State* state);
 void raise_segfault(Arm64State* state, uint64_t addr, size_t size, const char* op);
 void katze_is_baka();
+static int print_latest_github_rc_changelog();
 // --- Вспомогательная структура для эмуляции процессов ---
 typedef struct EmuProcess {
     Arm64State* state;
@@ -2660,6 +2661,7 @@ int main(int argc, char** argv) {
         printf("  --debug       Подробный отладочный вывод\n");
         printf("  --changelog   Показать историю изменений проекта\n");
         printf("  --katze_is_baka Пасхалка\n");
+        printf("  --changelog-rc   Show changelog of the latest RC (pre-release) version\n");
         return 0;
     }
     if (argc >= 2 && (strcmp(argv[1], "--changelog") == 0)) {
@@ -2672,6 +2674,9 @@ int main(int argc, char** argv) {
     if (argc >= 2 && (strcmp(argv[1], "--katze_is_baka") == 0)) {
         katze_is_baka();
         return 0;
+    }
+    if (argc >= 2 && (strcmp(argv[1], "--changelog-rc") == 0)) {
+        return print_latest_github_rc_changelog();
     }
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <arm64-elf-binary> [--trace] [--patches <file>] [--debug]\n", argv[0]);
@@ -2793,4 +2798,50 @@ static uint32_t crc32_calc(uint32_t crc, const uint8_t* buf, size_t len) {
         crc = crc32_table[(crc ^ buf[i]) & 0xFF] ^ (crc >> 8);
     }
     return ~crc;
+}
+
+// Print changelog of the latest RC (pre-release) from GitHub
+static int print_latest_github_rc_changelog() {
+    // Download JSON with all releases
+    const char* api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases";
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "curl -s '%s' -o /tmp/arm64runner_releases.json", api_url);
+    int res = system(cmd);
+    if (res != 0) {
+        printf("Error downloading releases info from GitHub.\n");
+        return 1;
+    }
+    FILE* f = fopen("/tmp/arm64runner_releases.json", "r");
+    if (!f) {
+        printf("Error opening temporary releases file.\n");
+        return 1;
+    }
+    char line[4096];
+    int found = 0;
+    printf("\n===== CHANGELOG (GitHub RC Release) =====\n\n");
+    // Look for the first occurrence of '"prerelease": true' and then the next '"body":'
+    while (fgets(line, sizeof(line), f)) {
+        if (!found && strstr(line, "\"prerelease\": true")) {
+            found = 1;
+        }
+        if (found && strstr(line, "\"body\":")) {
+            // Find the start of the body string
+            char* body_ptr = strstr(line, "\"body\":");
+            if (body_ptr) {
+                char* start = strchr(body_ptr, '"');
+                if (start) start = strchr(start+1, '"'); // to the second quote
+                if (start) start++;
+                char* end = strrchr(line, '"');
+                if (end && end > start) *end = 0;
+                if (start) printf("%s\n", start);
+                fclose(f);
+                unlink("/tmp/arm64runner_releases.json");
+                return 0;
+            }
+        }
+    }
+    fclose(f);
+    unlink("/tmp/arm64runner_releases.json");
+    printf("No RC (pre-release) changelog found!\n");
+    return 1;
 }
