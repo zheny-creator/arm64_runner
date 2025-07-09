@@ -123,11 +123,8 @@ int livepatch_create_nop(LivePatchSystem* system, uint64_t addr, const char* des
 
 // Базовая валидация ARM64-инструкции (можно расширить по маскам)
 static int is_valid_arm64_instr(uint32_t instr) {
-    // Пример: разрешаем только NOP и B (можно расширить по маскам)
-    if (instr == 0xD503201F) return 1; // NOP
-    if ((instr & 0xFC000000) == 0x14000000) return 1; // B
-    // Можно добавить другие маски
-    return 1; // Пока разрешаем всё, но можно ужесточить
+    // Простейшая проверка: не все нули и не все единицы
+    return (instr != 0x00000000 && instr != 0xFFFFFFFF);
 }
 
 // Функция для проверки валидности адреса
@@ -177,11 +174,13 @@ int livepatch_apply(LivePatchSystem* system, uint64_t target_addr,
         if (debug_enabled) fprintf(stderr, "[LIVEPATCH] Увеличен лимит патчей до %zu\n", new_max);
     }
     
-    // Проверка перекрытия патчей
+    // Проверка перекрытия патчей по диапазону
     for (size_t i = 0; i < system->patch_count; i++) {
         if (system->patches[i].active) {
-            uint64_t addr = system->patches[i].target_addr;
-            if (target_addr >= addr && target_addr < addr + 4) {
+            uint64_t patch_start = system->patches[i].target_addr;
+            uint64_t patch_end = patch_start + system->patches[i].size;
+            uint64_t new_patch_end = target_addr + 4;
+            if (target_addr < patch_end && new_patch_end > patch_start) {
                 if (debug_enabled) fprintf(stderr, "[LIVEPATCH] Перекрытие патча на адресе 0x%lX\n", target_addr);
                 pthread_mutex_unlock(&system->mutex);
                 return -1;
@@ -207,7 +206,7 @@ int livepatch_apply(LivePatchSystem* system, uint64_t target_addr,
     patch->patched_instr = new_instr;
     patch->size = 4;
     patch->active = 1;
-    patch->applied_time = 0;
+    patch->applied_time = time(NULL);
     strncpy(patch->description, description ? description : "Без описания", 255);
     patch->description[255] = '\0';
     
@@ -304,8 +303,8 @@ void livepatch_list(LivePatchSystem* system) {
         
         if (patch->active) {
             char time_str[64];
-            strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", 
-                    localtime(&patch->applied_time));
+            struct tm tm_buf;
+            strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", localtime_r(&patch->applied_time, &tm_buf));
             if (debug_enabled) printf("    Применен: %s\n", time_str);
             active_count++;
         }
@@ -339,10 +338,11 @@ int livepatch_load_from_file(LivePatchSystem* system, const char* filename) {
         
         uint64_t addr;
         uint32_t instr;
-        char description[256];
+        char description[256] = {0};
         
         // Формат: адрес инструкция описание
         int n = sscanf(line, "%lX %X %255[^\n]", &addr, &instr, description);
+        description[255] = '\0';
         if (n >= 2) {
             if (livepatch_apply(system, addr, instr, description) == 0) {
                 loaded_count++;
@@ -444,16 +444,22 @@ void livepatch_set_enabled(LivePatchSystem* system, int enabled) {
 }
 
 // Функция для получения глобальной системы
+static pthread_mutex_t g_system_mutex = PTHREAD_MUTEX_INITIALIZER;
 LivePatchSystem* livepatch_get_system() {
-    return g_livepatch_system;
+    pthread_mutex_lock(&g_system_mutex);
+    LivePatchSystem* result = g_livepatch_system;
+    pthread_mutex_unlock(&g_system_mutex);
+    return result;
 }
 
 // Функция для установки глобальной системы
 void livepatch_set_system(LivePatchSystem* system) {
+    pthread_mutex_lock(&g_system_mutex);
     if (g_livepatch_system && g_livepatch_system != system) {
         livepatch_cleanup(g_livepatch_system);
     }
     g_livepatch_system = system;
+    pthread_mutex_unlock(&g_system_mutex);
 }
 
 // Функция для демонстрации работы системы
