@@ -28,7 +28,7 @@ BIN = arm64_runner
 # Параметры версии по умолчанию (можно переопределять через окружение)
 MARKETING_MAJOR ?= 1
 MARKETING_MINOR ?= 2
-VERSION_CODE := $(shell echo $$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*1000 )))
+VERSION_CODE := $(shell echo $$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )))
 BUILD_NUMBER ?= 0
 RC_NUMBER ?= 0
 
@@ -42,7 +42,7 @@ $(BIN): $(SRC)
 		-DMARKETING_MINOR=$(MARKETING_MINOR) \
 		-DBUILD_NUMBER=$(BUILD_NUMBER) \
 		-DRC_NUMBER=0 \
-		-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*1000 ))
+		-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 ))
 
 # Компиляция объектных файлов
 src/%.o: src/%.c
@@ -55,7 +55,12 @@ modules/update_module.o: modules/update_module.c include/update_module.h
 	$(CC) $(CFLAGS) -Iinclude -c modules/update_module.c -o modules/update_module.o
 
 update_module: modules/update_module.c
-	$(CC) $(CFLAGS) -Iinclude modules/update_module.c -o update_module $(LDFLAGS) $(LDLIBS) -lcjson
+	$(CC) $(CFLAGS) -Iinclude modules/update_module.c -o update_module $(LDFLAGS) $(LDLIBS) -lcjson \
+		-DMARKETING_MAJOR=$(MARKETING_MAJOR) \
+		-DMARKETING_MINOR=$(MARKETING_MINOR) \
+		-DBUILD_NUMBER=$(BUILD_NUMBER) \
+		-DRC_NUMBER=0 \
+		-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 ))
 
 # Очистка
 clean:
@@ -195,6 +200,7 @@ increment_build:
 
 # release: стабильная сборка
 release: increment_build arm64_runner livepatch update_module
+	@echo "Built release: v$(MARKETING_MAJOR).$(MARKETING_MINOR) ($$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )).$(BUILD_NUMBER))"
 
 # rc: RC-кандидат, номер задаётся RC=...
 rc: increment_build
@@ -209,7 +215,7 @@ arm64_runner-rc: $(SRC_NOUPDATE)
 		-DMARKETING_MINOR=$(MARKETING_MINOR) \
 		-DBUILD_NUMBER=$(BUILD_NUMBER) \
 		-DRC_NUMBER=$(RC) \
-		-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*1000 ))
-	@echo "Built RC: v$(MARKETING_MAJOR).$(MARKETING_MINOR) ($$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*1000 )).$(BUILD_NUMBER)-rc$(RC))"
+		-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 ))
+	@echo "Built RC: v$(MARKETING_MAJOR).$(MARKETING_MINOR) ($$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )).$(BUILD_NUMBER)-rc$(RC))"
 
 .PHONY: all clean install test demo create-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 
