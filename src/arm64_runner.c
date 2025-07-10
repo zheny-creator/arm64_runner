@@ -19,6 +19,11 @@
 #include <sys/ioctl.h>
 #include <openssl/aes.h>
 #include <openssl/sha.h>
+#include <sys/un.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include "livepatch.h"
 #include "update_module.h"
 #include "wayland_basic.h"
@@ -969,18 +974,7 @@ void interpret_arm64(Arm64State* state) {
                 state->x[0] = -ENOSYS;
                 break;
             }
-            case 44:  // sendto
-            {
-                // Упрощенная реализация sendto
-                state->x[0] = -ENOSYS;
-                break;
-            }
-            case 45:  // recvfrom
-            {
-                // Упрощенная реализация recvfrom
-                state->x[0] = -ENOSYS;
-                break;
-            }
+              
             case 47:  // recvmsg
             {
                 // Упрощенная реализация recvmsg
@@ -1122,14 +1116,6 @@ void interpret_arm64(Arm64State* state) {
                 uint8_t rm = (instr >> 16) & 0x1F;
                 state->q[rd][0] = state->q[rn][0] * state->q[rm][0];
                 state->q[rd][1] = state->q[rn][1] * state->q[rm][1];
-                break;
-            }
-            case 0xC6: {  // NEON VCEQ (Q) [unique case]
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint8_t rm = (instr >> 16) & 0x1F;
-                state->q[rd][0] = (state->q[rn][0] == state->q[rm][0]) ? ~0ULL : 0ULL;
-                state->q[rd][1] = (state->q[rn][1] == state->q[rm][1]) ? ~0ULL : 0ULL;
                 break;
             }
             case 0xC7: {  // NEON VCGE (Q) [unique case]
@@ -1321,14 +1307,6 @@ void interpret_arm64(Arm64State* state) {
                 break;
             }
             // --- END ---
-            case 0xCB: {  // NEON SLI (Q) [unique case]
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint8_t imm = (instr >> 16) & 0x1F;
-                state->q[rd][0] = (state->q[rd][0] << imm) | (state->q[rn][0] & ((1ULL << imm) - 1));
-                state->q[rd][1] = (state->q[rd][1] << imm) | (state->q[rn][1] & ((1ULL << imm) - 1));
-                break;
-            }
             case 0xCC: {  // NEON SRI (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
@@ -1684,6 +1662,60 @@ void interpret_arm64(Arm64State* state) {
                 if (check_cond(state->nzcv, cond)) {
                     state->pc += offset - 4;
                 }
+                break;
+            }
+            case 44: { // sendto/send
+                int guest_fd = state->x[0];
+                uint64_t buf_addr = state->x[1];
+                size_t len = state->x[2];
+                int flags = state->x[3];
+                int host_fd = get_real_fd(guest_fd);
+                if (host_fd < 0) {
+                    state->x[0] = -EBADF;
+                    break;
+                }
+                if (buf_addr < state->base_addr || buf_addr + len > state->base_addr + state->mem_size) {
+                    state->x[0] = -EFAULT;
+                    break;
+                }
+                ssize_t sent = send(host_fd, state->memory + (buf_addr - state->base_addr), len, flags);
+                if (sent < 0) sent = -errno;
+                state->x[0] = sent;
+                break;
+            }
+            case 45: { // recvfrom/recv
+                int guest_fd = state->x[0];
+                uint64_t buf_addr = state->x[1];
+                size_t len = state->x[2];
+                int flags = state->x[3];
+                int host_fd = get_real_fd(guest_fd);
+                if (host_fd < 0) {
+                    state->x[0] = -EBADF;
+                    break;
+                }
+                if (buf_addr < state->base_addr || buf_addr + len > state->base_addr + state->mem_size) {
+                    state->x[0] = -EFAULT;
+                    break;
+                }
+                ssize_t recvd = recv(host_fd, state->memory + (buf_addr - state->base_addr), len, flags);
+                if (recvd < 0) recvd = -errno;
+                state->x[0] = recvd;
+                break;
+            }
+            case 0xC6: {  // NEON VCEQ (Q) [unique case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t rm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = (state->q[rn][0] == state->q[rm][0]) ? ~0ULL : 0ULL;
+                state->q[rd][1] = (state->q[rn][1] == state->q[rm][1]) ? ~0ULL : 0ULL;
+                break;
+            }
+            case 0xCB: {  // NEON SLI (Q) [unique case]
+                uint8_t rd = instr & 0x1F;
+                uint8_t rn = (instr >> 5) & 0x1F;
+                uint8_t imm = (instr >> 16) & 0x1F;
+                state->q[rd][0] = (state->q[rd][0] << imm) | (state->q[rn][0] & ((1ULL << imm) - 1));
+                state->q[rd][1] = (state->q[rd][1] << imm) | (state->q[rn][1] & ((1ULL << imm) - 1));
                 break;
             }
             default: {
@@ -2082,7 +2114,43 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
             state->x[0] = res;
             break;
         }
-        
+        // --- System call: socket (case 198) ---
+        case 198:  // socket
+        {
+            int domain = state->x[0];
+            int type = state->x[1];
+            int protocol = state->x[2];
+            int real_fd = socket(domain, type, protocol);
+            if (real_fd < 0) {
+                state->x[0] = -errno;
+            } else {
+                int guest_fd = register_fd(real_fd);
+                if (guest_fd < 0) {
+                    close(real_fd);
+                    state->x[0] = -EMFILE;
+                } else {
+                    state->x[0] = guest_fd;
+                }
+            }
+            break;
+        }
+        // --- System call: connect (case 203) ---
+        case 203:  // connect
+        {
+            int guest_fd = state->x[0];
+            uint64_t addr_ptr = state->x[1];
+            int addrlen = state->x[2];
+            int real_fd = get_real_fd(guest_fd);
+            if (real_fd < 0) {
+                state->x[0] = -EBADF;
+                break;
+            }
+            struct sockaddr* addr = (struct sockaddr*)(state->memory + (addr_ptr - state->base_addr));
+            int res = connect(real_fd, addr, addrlen);
+            if (res < 0) res = -errno;
+            state->x[0] = res;
+            break;
+        }
         case 23:  // select
         {
             // Упрощенная реализация select
@@ -2163,30 +2231,9 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
             break;
         }
         
-        case 41:  // socket
-        {
-            // Упрощенная реализация socket
-            state->x[0] = -ENOSYS;
-            break;
-        }
-        
         case 43:  // accept
         {
             // Упрощенная реализация accept
-            state->x[0] = -ENOSYS;
-            break;
-        }
-        
-        case 44:  // sendto
-        {
-            // Упрощенная реализация sendto
-            state->x[0] = -ENOSYS;
-            break;
-        }
-        
-        case 45:  // recvfrom
-        {
-            // Упрощенная реализация recvfrom
             state->x[0] = -ENOSYS;
             break;
         }
@@ -2346,11 +2393,7 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
             // Упрощенная реализация getitimer
             state->x[0] = -ENOSYS;
             break;
-        }
-        
-        case 203:  // connect (правильный номер для ARM64)
-            state->x[0] = -ENOSYS;
-            break;
+        }   
         
         case 220: // fork (реальный номер для ARM64)
         {
@@ -2451,6 +2494,7 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
                 syscall_number, state->x[8], state->pc - 4, state->x[0], state->x[1], state->x[2]);
             state->x[0] = -ENOSYS;
             break;
+        
     }
 }
 

@@ -21,8 +21,8 @@ TARGETS = arm64_runner update_module
 LIVEPATCH_OBJS = src/livepatch.o
 RUNNER_OBJS = src/arm64_runner.o
 
-SRC = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c
-SRC_NOUPDATE = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c
+SRC = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c src/xdg-shell-client-protocol.c
+SRC_NOUPDATE = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c src/xdg-shell-client-protocol.c
 BIN = arm64_runner
 
 # Параметры версии по умолчанию (можно переопределять через окружение)
