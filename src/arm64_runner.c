@@ -2646,11 +2646,11 @@ int main(int argc, char** argv) {
         return run_update();
     }
     if (argc >= 2 && (strcmp(argv[1], "--about") == 0 || strcmp(argv[1], "--version") == 0)) {
-        printf("ARM64 Runner v1.1-rc3\nАвтор: Женя Бородин\nИнтерпретатор ARM64 ELF бинарников для Linux x86_64\n");
+        printf("ARM64 Runner v1.1\nАвтор: Женя Бородин\nИнтерпретатор ARM64 ELF бинарников для Linux x86_64\n");
         return 0;
     }
     if (argc >= 2 && (strcmp(argv[1], "--help") == 0)) {
-        printf("ARM64 Runner v1.1-rc3\n");
+        printf("ARM64 Runner v1.1\n");
         printf("Использование: %s <arm64-elf-binary> [--trace] [--patches <file>] [--debug]\n", argv[0]);
         printf("Опции:\n");
         printf("  --help        Показать эту справку\n");
