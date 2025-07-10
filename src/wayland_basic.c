@@ -1,6 +1,7 @@
 #include "wayland_basic.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // Callback для получения глобальных объектов
 static void registry_handler(void* data, struct wl_registry* registry, uint32_t id, const char* interface, uint32_t version) {

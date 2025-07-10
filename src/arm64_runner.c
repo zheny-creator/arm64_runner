@@ -22,6 +22,7 @@
 #include "livepatch.h"
 #include "update_module.h"
 #include "wayland_basic.h"
+#include "version.h"
 #ifdef NO_UPDATE_MODULE
 int run_update() {
     printf("Update module is not included in this build.\n");
@@ -2641,27 +2642,53 @@ static int check_elf_arch(const char* filename) {
     return 0;
 }
 
+#ifndef MARKETING_MAJOR
+#define MARKETING_MAJOR 1
+#endif
+#ifndef MARKETING_MINOR
+#define MARKETING_MINOR 1
+#endif
+#ifndef BUILD_NUMBER
+#define BUILD_NUMBER 0
+#endif
+#ifndef RC_BUILD
+#define RC_BUILD 0
+#endif
+#ifndef RC_NUMBER
+#define RC_NUMBER 0
+#endif
+#define VERSION_CODE (MARKETING_MAJOR * 100000 + MARKETING_MINOR * 1000)
+
+static void print_version_info() {
+    char ver[128];
+    get_version_string(ver, sizeof(ver));
+    printf("%s\n", ver);
+}
+
 int main(int argc, char** argv) {
+    if (argc >= 2 && (strcmp(argv[1], "--about") == 0 || strcmp(argv[1], "--version") == 0)) {
+        print_version_info();
+        return 0;
+    }
     if (argc >= 2 && strcmp(argv[1], "--update") == 0) {
         return run_update();
     }
-    if (argc >= 2 && (strcmp(argv[1], "--about") == 0 || strcmp(argv[1], "--version") == 0)) {
-        printf("ARM64 Runner v1.1\nАвтор: Женя Бородин\nИнтерпретатор ARM64 ELF бинарников для Linux x86_64\n");
-        return 0;
-    }
     if (argc >= 2 && (strcmp(argv[1], "--help") == 0)) {
-        printf("ARM64 Runner v1.1\n");
-        printf("Использование: %s <arm64-elf-binary> [--trace] [--patches <file>] [--debug]\n", argv[0]);
-        printf("Опции:\n");
-        printf("  --help        Показать эту справку\n");
-        printf("  --about       Информация о программе\n");
-        printf("  --version     То же, что --about\n");
-        printf("  --trace       Включить трассировку инструкций\n");
-        printf("  --patches <file>  Загрузить livepatch-патчи из файла (.txt или .lpatch)\n");
-        printf("  --debug       Подробный отладочный вывод\n");
-        printf("  --changelog   Показать историю изменений проекта\n");
-        printf("  --katze_is_baka Пасхалка\n");
-        printf("  --changelog-rc   Show changelog of the latest RC (pre-release) version\n");
+        char ver[128];
+        get_version_string(ver, sizeof(ver));
+        printf("ARM64 Runner %s\n", ver);
+        printf("Использование: %s <elf-файл> [аргументы]\n", argv[0]);
+        printf("--about, --version      — информация о программе\n");
+        printf("--help                  — эта справка\n");
+        printf("--update                — запуск модуля обновления\n");
+        printf("--changelog             — показать changelog последнего релиза\n");
+        printf("--changelog-rc          — показать changelog последнего RC\n");
+        printf("--katze                 — пасхалка\n");
+        printf("--katze_is_baka         — пасхалка\n");
+        printf("--wayland-test          — тест Wayland\n");
+        printf("--trace                 — трассировка исполнения (доп. аргумент)\n");
+        printf("--debug                 — подробный вывод (доп. аргумент)\n");
+        printf("--patches <file>        — загрузить livepatch-патчи из файла (.lpatch/.txt)\n");
         return 0;
     }
     if (argc >= 2 && (strcmp(argv[1], "--changelog") == 0)) {
@@ -2844,4 +2871,10 @@ static int print_latest_github_rc_changelog() {
     unlink("/tmp/arm64runner_releases.json");
     printf("No RC (pre-release) changelog found!\n");
     return 1;
+}
+
+// --- Always provide a stub for run_update if not linked ---
+__attribute__((weak)) int run_update() {
+    printf("Update module is not included in this build.\n");
+    return 0;
 }

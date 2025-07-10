@@ -11,7 +11,7 @@
 
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -O2 -g -Iinclude -ldl
-LDFLAGS = -lpthread -lssl -lcrypto
+LDFLAGS = -lpthread -lssl -lcrypto -lwayland-client -lm -lcjson -lcurl
 LDLIBS += -lcurl
 
 # Основные цели
@@ -21,16 +21,28 @@ TARGETS = arm64_runner update_module
 LIVEPATCH_OBJS = src/livepatch.o
 RUNNER_OBJS = src/arm64_runner.o
 
-SRC = src/arm64_runner.c modules/livepatch.c modules/update_module.c src/wayland_basic.c
-SRC_NOUPDATE = src/arm64_runner.c modules/livepatch.c
+SRC = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c
+SRC_NOUPDATE = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c
 BIN = arm64_runner
 
+# Параметры версии по умолчанию (можно переопределять через окружение)
+MARKETING_MAJOR ?= 1
+MARKETING_MINOR ?= 2
+VERSION_CODE := $(shell echo $$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*1000 )))
+BUILD_NUMBER ?= 0
+RC_NUMBER ?= 0
+
 # Правила по умолчанию
-all: arm64_runner update_module livepatch
+all: release
 
 # Компиляция ARM64 Runner
 $(BIN): $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS) -lwayland-client -lm -lcjson
+	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS) -lwayland-client -lm -lcjson \
+		-DMARKETING_MAJOR=$(MARKETING_MAJOR) \
+		-DMARKETING_MINOR=$(MARKETING_MINOR) \
+		-DBUILD_NUMBER=$(BUILD_NUMBER) \
+		-DRC_NUMBER=0 \
+		-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*1000 ))
 
 # Компиляция объектных файлов
 src/%.o: src/%.c
@@ -42,8 +54,8 @@ modules/livepatch.o: modules/livepatch.c include/livepatch.h
 modules/update_module.o: modules/update_module.c include/update_module.h
 	$(CC) $(CFLAGS) -Iinclude -c modules/update_module.c -o modules/update_module.o
 
-update_module: src/update_main.c modules/update_module.o
-	$(CC) $(CFLAGS) -Iinclude src/update_main.c modules/update_module.o -o update_module $(LDFLAGS) $(LDLIBS) -lcjson
+update_module: modules/update_module.c
+	$(CC) $(CFLAGS) -Iinclude modules/update_module.c -o update_module $(LDFLAGS) $(LDLIBS) -lcjson
 
 # Очистка
 clean:
@@ -162,5 +174,42 @@ livepatch: src/livepatch_main.c modules/livepatch.o
 
 tar.gz: $(SOURCE_ARCHIVE)
 	@echo "Готово: $(SOURCE_ARCHIVE)"
+
+# build_counter начинается со 100, если файла нет
+BUILD_COUNTER_FILE = build_counter
+
+ifeq ($(wildcard $(BUILD_COUNTER_FILE)),)
+    BUILD_NUMBER = 100
+else
+    BUILD_NUMBER = $(shell cat $(BUILD_COUNTER_FILE))
+endif
+
+RC ?= 0
+# Удаляю глобальное определение RC_NUMBER
+# RC_NUMBER ?= $(RC)
+
+# Инкремент номера сборки (всегда, даже если сборка неудачна)
+increment_build:
+	@if [ ! -f $(BUILD_COUNTER_FILE) ]; then echo 100 > $(BUILD_COUNTER_FILE); fi
+	@echo $$(( $(BUILD_NUMBER) + 1 )) > $(BUILD_COUNTER_FILE)
+
+# release: стабильная сборка
+release: increment_build arm64_runner livepatch update_module
+
+# rc: RC-кандидат, номер задаётся RC=...
+rc: increment_build
+	$(MAKE) arm64_runner-rc RC=$(RC)
+	$(MAKE) livepatch RC=$(RC)
+	$(MAKE) update_module RC=$(RC)
+
+# arm64_runner-rc: RC-кандидат, номер задаётся RC=...
+arm64_runner-rc: $(SRC_NOUPDATE)
+	$(CC) $(CFLAGS) $(SRC_NOUPDATE) -o arm64_runner-rc$(RC) $(LDFLAGS) $(LDLIBS) \
+		-DMARKETING_MAJOR=$(MARKETING_MAJOR) \
+		-DMARKETING_MINOR=$(MARKETING_MINOR) \
+		-DBUILD_NUMBER=$(BUILD_NUMBER) \
+		-DRC_NUMBER=$(RC) \
+		-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*1000 ))
+	@echo "Built RC: v$(MARKETING_MAJOR).$(MARKETING_MINOR) ($$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*1000 )).$(BUILD_NUMBER)-rc$(RC))"
 
 .PHONY: all clean install test demo create-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 

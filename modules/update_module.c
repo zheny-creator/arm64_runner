@@ -14,6 +14,7 @@
 #include <dirent.h>
 #include <sys/types.h>
 #define RUNNER_VERSION "1.1-rc2"
+#include "version.h"
 
 // --- Структуры и таблицы ---
 /*
@@ -437,4 +438,36 @@ void print_update_help() {
     printf("  update_module --debug --rc # Установить RC с отладкой\n");
     printf("\n");
     printf("Архив будет распакован в текущую директорию.\n");
+} 
+
+int main(int argc, char **argv) {
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--about") == 0) {
+            char ver[128];
+            get_version_string(ver, sizeof(ver));
+            printf("%s\n", ver);
+            return 0;
+        }
+    }
+    // --- Обработка опций ---
+    int opt;
+    while ((opt = getopt(argc, argv, "drh")) != -1) {
+        switch (opt) {
+            case 'd':
+                update_debug = 1;
+                break;
+            case 'r':
+                update_rc_mode = 1;
+                break;
+            case 'h':
+                print_update_help();
+                return 0;
+            default:
+                print_update_help();
+                return 1;
+        }
+    }
+
+    // --- Запуск обновления ---
+    return run_update();
 } 
