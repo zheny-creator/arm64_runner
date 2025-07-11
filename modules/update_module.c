@@ -188,6 +188,13 @@ static int find_tar_gz_asset(const char* json, char* out_url, size_t url_size, c
     return found ? 0 : 1;
 }
 
+// --- Вспомогательная функция для парсинга тега вида v1.2-rc1 или v1.2 ---
+static void parse_version_tag(const char* tag, int* major, int* minor, int* rc) {
+    *major = *minor = *rc = 0;
+    if (sscanf(tag, "v%d.%d-rc%d", major, minor, rc) == 3) return;
+    if (sscanf(tag, "v%d.%d", major, minor) >= 2) return;
+}
+
 // --- Основные функции модуля ---
 
 void update_detect_distro(UpdateParams* params) {
@@ -392,14 +399,29 @@ int run_update() {
         printf("[Update] Не удалось получить тег последнего релиза!\n");
         return 1;
     }
+    // --- Сравнение версий ---
+    int cur_major = MARKETING_MAJOR, cur_minor = MARKETING_MINOR, cur_rc = RC_NUMBER;
+    int latest_major = 0, latest_minor = 0, latest_rc = 0;
+    parse_version_tag(latest_tag, &latest_major, &latest_minor, &latest_rc);
+    if (cur_rc == 0 && latest_rc == 0) {
+        // Обычные релизы: обновлять только если версия пользователя ниже
+        if (cur_major > latest_major || (cur_major == latest_major && cur_minor >= latest_minor)) {
+            printf("[Update] Already up to date (v%d.%d).\n", cur_major, cur_minor);
+            return 0;
+        }
+    } else if (cur_rc > 0 && latest_rc > 0) {
+        // RC-версии: обновлять только если версия пользователя ниже
+        if (cur_major > latest_major || (cur_major == latest_major && cur_minor > latest_minor) || (cur_major == latest_major && cur_minor == latest_minor && cur_rc >= latest_rc)) {
+            printf("[Update] Already up to date (v%d.%d-rc%d).\n", cur_major, cur_minor, cur_rc);
+            return 0;
+        }
+        // Если версия пользователя ниже — обновляем
+    }
+    // --- Получение архива только по расширению .tar.gz из assets ---
+    // update_get_url уже ищет .tar.gz через find_tar_gz_asset и заполняет params.filename/params.url
+    // Не формируем имя архива вручную, используем только найденное в assets
     printf("[Update] Последняя версия: %s%s\n", latest_tag, update_rc_mode ? " (pre-release)" : "");
-    snprintf(params.url, sizeof(params.url),
-        "https://github.com/zheny-creator/arm64_runner/releases/download/%s/%s",
-        latest_tag, params.filename);
     printf("[Update] URL: %s\n", params.url);
-    const char* slash = strrchr(params.url, '/');
-    if (slash) strncpy(params.filename, slash+1, sizeof(params.filename));
-    else strncpy(params.filename, params.url, sizeof(params.filename));
     if (update_download(&params) != 0) {
         printf("[Update] Download failed!\n");
         return 1;

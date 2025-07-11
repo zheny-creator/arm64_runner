@@ -2771,6 +2771,19 @@ static void print_version_info() {
     printf("%s\n", ver);
 }
 
+// Simple config reader: looks for 'auto_update=1' in arm64runner.conf in current dir
+static int config_auto_update_enabled() {
+    FILE* f = fopen("arm64runner.conf", "r");
+    if (!f) return 0;
+    char line[256];
+    int enabled = 0;
+    while (fgets(line, sizeof(line), f)) {
+        if (strstr(line, "auto_update=1")) { enabled = 1; break; }
+    }
+    fclose(f);
+    return enabled;
+}
+
 int main(int argc, char** argv) {
     int debug_enabled = 0;
     for (int i = 1; i < argc; ++i) {
@@ -2789,6 +2802,17 @@ int main(int argc, char** argv) {
     if (argc >= 2 && (strcmp(argv[1], "--about") == 0 || strcmp(argv[1], "--version") == 0)) {
         print_version_info();
         return 0;
+    }
+    int skip_update = 0;
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--update") == 0 || strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "--about") == 0 || strcmp(argv[i], "--jit") == 0) {
+            skip_update = 1;
+            break;
+        }
+    }
+    if (!skip_update && config_auto_update_enabled()) {
+        printf("[AutoUpdate] Checking for updates (debug)\n");
+        run_update();
     }
     if (argc >= 2 && strcmp(argv[1], "--update") == 0) {
         return run_update();

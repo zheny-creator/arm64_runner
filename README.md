@@ -50,6 +50,13 @@ You can update ARM64 Runner automatically from GitHub Releases:
 - The updater will check the latest release, download the appropriate **tar.gz** archive, and install it.
 - Works on any Linux with basic tar and shell utilities.
 
+**Automatic update on every run:**
+If you create a file `arm64runner.conf` in the current directory with the line:
+```
+auto_update=1
+```
+then the update check will be performed automatically on every program start (unless you run with --help, --version, --about, --update, or --jit).
+
 ---
 
 ## ARM64 Runner (Русский)
@@ -98,6 +105,13 @@ make test
 - Апдейтер сам определит вашу систему, скачает нужный **tar.gz** архив и установит его.
 - Работает на любом Linux с базовыми утилитами tar и shell.
 
+**Автоматическая проверка обновлений при каждом запуске:**
+Если создать файл `arm64runner.conf` в текущей директории со строкой:
+```
+auto_update=1
+```
+то при каждом запуске ARM64 Runner будет автоматически выполняться проверка обновлений (кроме случаев запуска с --help, --version, --about, --update или --jit).
+
 ---
 
 ### Структура репозитория
@@ -126,7 +140,7 @@ README.md   — документация
 - Потокобезопасность, валидация, статистика
 
 Смотрите файлы `livepatch.h` и `livepatch.c` для  использования и API.
-
+п
 ---
 
 ### Автоматическое обновление (update_module)
