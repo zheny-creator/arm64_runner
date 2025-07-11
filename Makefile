@@ -255,22 +255,10 @@ release: increment_build arm64_runner livepatch update_module module_jit
 
 # rc: RC-кандидат, номер задаётся RC=...
 rc: increment_build
-	$(MAKE) RC=$(RC) MARKETING_MAJOR=$(MARKETING_MAJOR) MARKETING_MINOR=$(MARKETING_MINOR) BUILD_NUMBER=$(BUILD_NUMBER) arm64_runner-rc
+	$(MAKE) RC=$(RC) MARKETING_MAJOR=$(MARKETING_MAJOR) MARKETING_MINOR=$(MARKETING_MINOR) BUILD_NUMBER=$(BUILD_NUMBER) arm64_runner
 	$(MAKE) RC=$(RC) MARKETING_MAJOR=$(MARKETING_MAJOR) MARKETING_MINOR=$(MARKETING_MINOR) BUILD_NUMBER=$(BUILD_NUMBER) livepatch
 	$(MAKE) RC=$(RC) MARKETING_MAJOR=$(MARKETING_MAJOR) MARKETING_MINOR=$(MARKETING_MINOR) BUILD_NUMBER=$(BUILD_NUMBER) update_module
 	$(MAKE) RC=$(RC) MARKETING_MAJOR=$(MARKETING_MAJOR) MARKETING_MINOR=$(MARKETING_MINOR) BUILD_NUMBER=$(BUILD_NUMBER) module_jit
-
-# arm64_runner-rc: RC-кандидат, номер задаётся RC=...
-RC_OBJS = src/arm64_runner.o modules/livepatch.o modules/module_jit.o src/wayland_basic.o src/xdg-shell-client-protocol.o
-
-arm64_runner-rc: $(RC_OBJS)
-	g++ $(RC_OBJS) -o arm64_runner-rc$(RC) $(LDFLAGS) $(LDLIBS) -lwayland-client -lm -lcjson -ldl -lstdc++ \
-		-DMARKETING_MAJOR=$(MARKETING_MAJOR) \
-		-DMARKETING_MINOR=$(MARKETING_MINOR) \
-		-DBUILD_NUMBER=$(BUILD_NUMBER) \
-		-DRC_NUMBER=$(RC) \
-		-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 ))
-	@echo "Built RC: v$(MARKETING_MAJOR).$(MARKETING_MINOR) ($$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )).$(BUILD_NUMBER)-rc$(RC))"
 
 module_jit: modules/module_jit_main.cpp modules/module_jit.o include/module_jit.h modules/livepatch.o
 	g++ $(CXXFLAGS) -Iinclude modules/module_jit_main.cpp modules/module_jit.o modules/livepatch.o -o module_jit $(LDFLAGS) $(LDLIBS)

@@ -2936,7 +2936,7 @@ int main(int argc, char** argv) {
     return exit_code;
 }
 
-// Прототип новой пасхальной функции
+// Прототип пасхальной функции
 void katze_is_baka() {
     printf("Это пасхалка.. А что еще надо?\n");
 }
