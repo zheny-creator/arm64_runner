@@ -1195,8 +1195,8 @@ void interpret_arm64(Arm64State* state) {
             case 0xB4: {  // NEON ABS (Q) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
-                state->q[rd][0] = (state->q[rn][0] & 0x8000000000000000ULL) ? -((int64_t)state->q[rn][0]) : state->q[rn][0];
-                state->q[rd][1] = (state->q[rn][1] & 0x8000000000000000ULL) ? -((int64_t)state->q[rn][1]) : state->q[rn][1];
+                state->q[rd][0] = (state->q[rn][0] & 0x8000000000000000ULL) ? (uint64_t)(-((int64_t)state->q[rn][0])) : (uint64_t)state->q[rn][0];
+                state->q[rd][1] = (state->q[rn][1] & 0x8000000000000000ULL) ? (uint64_t)(-((int64_t)state->q[rn][1])) : (uint64_t)state->q[rn][1];
                 break;
             }
             case 0xB5: {  // NEON NEG (Q) [unique case]
@@ -1360,8 +1360,9 @@ void interpret_arm64(Arm64State* state) {
             case 0xD3: {  // FMOV immediate (S) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint32_t imm = (instr >> 5) & 0xFFFF;
-                // Простейшая эмуляция: просто записываем как float
-                state->s[rd] = *(float*)&imm;
+                float fval;
+                memcpy(&fval, &imm, sizeof(float));
+                state->s[rd] = fval;
                 break;
             }
             case 0xD4: {  // MOVI (Q) [unique case]
@@ -1458,13 +1459,17 @@ void interpret_arm64(Arm64State* state) {
             case 0xE3: {  // MOVI (S) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint32_t imm = (instr >> 5) & 0xFFFFFFFF;
-                state->s[rd] = *(float*)&imm;
+                float fval;
+                memcpy(&fval, &imm, sizeof(float));
+                state->s[rd] = fval;
                 break;
             }
             case 0xE4: {  // MOVI (D) [unique case]
                 uint8_t rd = instr & 0x1F;
                 uint64_t imm = (instr >> 5) & 0xFFFFFFFFFFFFFFFFULL;
-                state->d[rd] = *(double*)&imm;
+                double dval;
+                memcpy(&dval, &imm, sizeof(double));
+                state->d[rd] = dval;
                 break;
             }
             // --- System instructions and extended barriers ---
@@ -1933,7 +1938,41 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
             }
             break;
         }
-        
+        case 10:  // mprotect
+            {
+                // Stub: не реализовано
+                state->x[0] = -ENOSYS;
+                break;
+            }
+            case 80:  // fstat
+            {
+                // Stub: не реализовано
+                state->x[0] = -ENOSYS;
+                break;
+            }
+            case 158: // arch_prctl (x86_64 специфично, на ARM64 всегда ENOSYS)
+            {
+                state->x[0] = -ENOSYS;
+                break;
+            }
+            case 96:  // set_tid_address
+            {
+                // glibc ожидает возврат адреса
+                state->x[0] = state->x[0];
+                break;
+            }
+            case 98:  // futex
+            {
+                // Stub: не реализовано
+                state->x[0] = -ENOSYS;
+                break;
+            }
+            case 99:  // set_robust_list
+            {
+                // Stub: не реализовано
+                state->x[0] = -ENOSYS;
+                break;
+            }
         case 11:  // munmap
         {
             // Упрощенная реализация munmap
@@ -1978,7 +2017,27 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
             break;
         }
         
-        case 17:  // pread64
+        case 179: // sysinfo
+            {
+                struct sysinfo* info = (struct sysinfo*)(state->memory + (state->x[0] - state->base_addr));
+                int res = sysinfo(info);
+                if (res < 0) res = -errno;
+                state->x[0] = res;
+                break;
+            }
+        case 17:  // getcwd
+        {
+            char* buf = (char*)(state->memory + (state->x[0] - state->base_addr));
+            size_t size = state->x[1];
+            char* result = getcwd(buf, size);
+            if (result == NULL) {
+                state->x[0] = -errno;
+            } else {
+                state->x[0] = (uint64_t)result - state->base_addr;
+            }
+            break;
+        }
+        case 180:  // pread64
         {
             int real_fd = get_real_fd(state->x[0]);
             uint64_t buf_addr = state->x[1];
@@ -2444,7 +2503,6 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
             break;
         }
         
-        // ===== КОНЕЦ НОВЫХ СИСТЕМНЫХ ВЫЗОВОВ =====
         
         case 129: // kill
         case 131: // tgkill
@@ -2702,7 +2760,6 @@ static int check_elf_arch(const char* filename) {
 #ifndef RC_NUMBER
 #define RC_NUMBER 0
 #endif
-#define VERSION_CODE (MARKETING_MAJOR * 100000 + MARKETING_MINOR * 1000)
 
 static void print_version_info() {
     char ver[128];
