@@ -2772,6 +2772,10 @@ static void print_version_info() {
 }
 
 int main(int argc, char** argv) {
+    int debug_enabled = 0;
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--debug") == 0) debug_enabled = 1;
+    }
     int jit_requested = 0;
     int experimental_enable = 0;
     for (int i = 1; i < argc; ++i) {
@@ -2827,6 +2831,18 @@ int main(int argc, char** argv) {
     }
     if (argc >= 2 && (strcmp(argv[1], "--changelog-rc") == 0)) {
         return print_latest_github_rc_changelog();
+    }
+    // --- Перемещённая обработка --reload-patches ---
+    if (argc >= 2 && strcmp(argv[1], "--reload-patches") == 0 && argc >= 3) {
+        if (!livepatch_get_system()) {
+            static uint8_t dummy_mem[1024*1024];
+            livepatch_set_system(livepatch_init(dummy_mem, sizeof(dummy_mem), 0x1000));
+        }
+        const char* patch_file = argv[2];
+        const char* ext = strrchr(patch_file, '.');
+        int is_json = (ext && strcmp(ext, ".json") == 0);
+        int res = livepatch_reload_patches(livepatch_get_system(), patch_file, is_json);
+        return 0;
     }
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <arm64-elf-binary> [--trace] [--patches <file>] [--debug]\n", argv[0]);

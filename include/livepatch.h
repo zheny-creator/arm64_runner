@@ -12,9 +12,31 @@ extern "C" {
 
 #include <stdint.h>
 #include <sys/types.h>
+#include <time.h> // Added for time_t
 
 // Структура для управления системой Livepatch
 typedef struct LivePatchSystem LivePatchSystem;
+
+typedef enum {
+    PATCH_REPLACE = 0,
+    PATCH_INSERT  = 1,
+    PATCH_NEW_FUNC = 2
+} LivePatchType;
+
+// Structure for storing patch information
+typedef struct {
+    uint64_t target_addr;
+    uint32_t original_instr;
+    uint32_t patched_instr;
+    size_t size;
+    int active;
+    char description[256];
+    time_t applied_time;
+    LivePatchType patch_type;
+    // Для INSERT/NEW_FUNC
+    uint8_t* code;
+    size_t code_size;
+} LivePatch;
 
 // Основные функции инициализации и очистки
 LivePatchSystem* livepatch_init(void* memory, size_t mem_size, uint64_t base_addr);
@@ -29,6 +51,8 @@ int livepatch_revert_all(LivePatchSystem* system);
 // Функции для работы с файлами
 int livepatch_load_from_file(LivePatchSystem* system, const char* filename);
 int livepatch_save_to_file(LivePatchSystem* system, const char* filename);
+int livepatch_load_from_json(LivePatchSystem* system, const char* filename);
+int livepatch_reload_patches(LivePatchSystem* system, const char* filename, int is_json);
 
 // Специализированные функции создания патчей
 int livepatch_create_branch(LivePatchSystem* system, uint64_t from_addr, 

@@ -20,6 +20,8 @@ void jit_init() {
     printf("[JIT] Livepatch initialized\n");
 }
 
+extern int debug_enabled;
+
 extern "C" {
     int jit_compile_simple_add(int a, int b) {
         // Здесь будет реальный JIT, пока stub

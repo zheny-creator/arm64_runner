@@ -20,16 +20,8 @@
 
 extern int debug_enabled;
 
-// Structure for storing patch information
-typedef struct {
-    uint64_t target_addr;      // Address to patch
-    uint32_t original_instr;   // Original instruction
-    uint32_t patched_instr;    // New instruction
-    size_t size;              // Patch size (usually 4 bytes for ARM64)
-    int active;               // Is the patch active
-    char description[256];    // Patch description
-    time_t applied_time;      // Patch application time
-} LivePatch;
+// Удаляю повторное определение enum LivePatchType и структуры LivePatch
+// Оставляю только #include "livepatch.h" и работу с этими типами
 
 // Full definition of LivePatchSystem structure (internal)
 struct LivePatchSystem {
@@ -320,7 +312,7 @@ void livepatch_list(LivePatchSystem* system) {
 // Функция для загрузки патчей из файла
 int livepatch_load_from_file(LivePatchSystem* system, const char* filename) {
     if (!system || !filename) return -1;
-    
+    if (debug_enabled) printf("[LIVEPATCH] Открываю файл: '%s'\n", filename);
     FILE* file = fopen(filename, "r");
     if (!file) {
         perror("fopen");
@@ -352,6 +344,117 @@ int livepatch_load_from_file(LivePatchSystem* system, const char* filename) {
     
     fclose(file);
     if (debug_enabled) printf("[LIVEPATCH] Загружено %d патчей из файла %s\n", loaded_count, filename);
+    return loaded_count;
+}
+
+// --- Горячая перезагрузка патчей ---
+int livepatch_reload_patches(LivePatchSystem* system, const char* filename, int is_json) {
+    if (debug_enabled) printf("[LIVEPATCH] reload: system=%p, filename=%s, is_json=%d\n", system, filename, is_json);
+    if (!system || !filename) return -1;
+    livepatch_revert_all(system);
+    if (is_json) {
+        return livepatch_load_from_json(system, filename);
+    } else {
+        return livepatch_load_from_file(system, filename);
+    }
+}
+
+// Заготовка для загрузки патчей из JSON
+#include <cjson/cJSON.h>
+
+int livepatch_load_from_json(LivePatchSystem* system, const char* filename) {
+    if (debug_enabled) printf("[LIVEPATCH] system=%p, filename=%s\n", system, filename);
+    if (!system || !filename) return -1;
+    if (debug_enabled) printf("[LIVEPATCH] Открываю файл: '%s'\n", filename);
+    FILE* file = fopen(filename, "r");
+    if (!file) return -1;
+    fseek(file, 0, SEEK_END);
+    long fsize = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    char* json_data = malloc(fsize + 1);
+    if (!json_data) { fclose(file); return -1; }
+    fread(json_data, 1, fsize, file);
+    json_data[fsize] = 0;
+    fclose(file);
+    cJSON* root = cJSON_Parse(json_data);
+    free(json_data);
+    if (!root) return -1;
+    if (!cJSON_IsArray(root)) { cJSON_Delete(root); return -1; }
+    int loaded_count = 0;
+    cJSON* patch = NULL;
+    cJSON_ArrayForEach(patch, root) {
+        cJSON* addr = cJSON_GetObjectItem(patch, "addr");
+        cJSON* instr = cJSON_GetObjectItem(patch, "instr");
+        cJSON* desc = cJSON_GetObjectItem(patch, "desc");
+        cJSON* type = cJSON_GetObjectItem(patch, "type");
+        cJSON* code = cJSON_GetObjectItem(patch, "code");
+        const char* description = (desc && cJSON_IsString(desc)) ? desc->valuestring : "";
+        LivePatchType patch_type = PATCH_REPLACE;
+        if (type && cJSON_IsString(type)) {
+            if (strcmp(type->valuestring, "REPLACE") == 0) patch_type = PATCH_REPLACE;
+            else if (strcmp(type->valuestring, "INSERT") == 0) patch_type = PATCH_INSERT;
+            else if (strcmp(type->valuestring, "NEW_FUNC") == 0) patch_type = PATCH_NEW_FUNC;
+        }
+        if (patch_type == PATCH_REPLACE) {
+            if (!cJSON_IsNumber(addr) || !cJSON_IsNumber(instr)) continue;
+            if (livepatch_apply(system, (uint64_t)addr->valuedouble, (uint32_t)instr->valuedouble, description) == 0) {
+                if (system->patch_count > 0) {
+                    system->patches[system->patch_count-1].patch_type = patch_type;
+                }
+                loaded_count++;
+            }
+        } else if (patch_type == PATCH_INSERT) {
+            // Вставка инструкции (или кода) перед addr
+            if (!cJSON_IsNumber(addr) || !code || !cJSON_IsString(code)) continue;
+            // Преобразуем hex-строку в байты
+            const char* hex = code->valuestring;
+            size_t hexlen = strlen(hex);
+            if (hexlen % 2 != 0) continue;
+            size_t code_size = hexlen / 2;
+            uint8_t* code_bytes = malloc(code_size);
+            for (size_t i = 0; i < code_size; ++i) {
+                sscanf(hex + 2*i, "%2hhx", &code_bytes[i]);
+            }
+            // TODO: Реализовать вставку кода в память (MVP: просто сохранить в патч)
+            LivePatch* p = &system->patches[system->patch_count];
+            memset(p, 0, sizeof(LivePatch));
+            p->target_addr = (uint64_t)addr->valuedouble;
+            p->patch_type = PATCH_INSERT;
+            p->code = code_bytes;
+            p->code_size = code_size;
+            strncpy(p->description, description, 255);
+            p->description[255] = '\0';
+            p->active = 1;
+            p->applied_time = time(NULL);
+            system->patch_count++;
+            loaded_count++;
+            if (debug_enabled) printf("[LIVEPATCH] INSERT patch loaded (MVP, not applied): %s\n", p->description);
+        } else if (patch_type == PATCH_NEW_FUNC) {
+            // Добавление новой функции (код в hex)
+            if (!code || !cJSON_IsString(code)) continue;
+            const char* hex = code->valuestring;
+            size_t hexlen = strlen(hex);
+            if (hexlen % 2 != 0) continue;
+            size_t code_size = hexlen / 2;
+            uint8_t* code_bytes = malloc(code_size);
+            for (size_t i = 0; i < code_size; ++i) {
+                sscanf(hex + 2*i, "%2hhx", &code_bytes[i]);
+            }
+            LivePatch* p = &system->patches[system->patch_count];
+            memset(p, 0, sizeof(LivePatch));
+            p->patch_type = PATCH_NEW_FUNC;
+            p->code = code_bytes;
+            p->code_size = code_size;
+            strncpy(p->description, description, 255);
+            p->description[255] = '\0';
+            p->active = 1;
+            p->applied_time = time(NULL);
+            system->patch_count++;
+            loaded_count++;
+            if (debug_enabled) printf("[LIVEPATCH] NEW_FUNC patch loaded (MVP, not linked): %s\n", p->description);
+        }
+    }
+    cJSON_Delete(root);
     return loaded_count;
 }
 
