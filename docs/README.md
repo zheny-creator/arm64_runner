@@ -1,261 +1,259 @@
 # Livepatch System for ARM64 Runner
 
-The Livepatch system allows you to apply patches to the ARM64 interpreter code at runtime without restarting the program.
+---
 
-## Features
+# 1. Overview
 
-- ✅ Apply patches at runtime
-- ✅ Revert patches (individual or all)
-- ✅ Create NOP patches for debugging
-- ✅ Create branch patches for control flow redirection
-- ✅ Save and load patches from files
-- ✅ Thread safety (using mutexes)
-- ✅ Patch statistics and monitoring
-- ✅ Address and instruction validation
+Livepatch is a dynamic patching system for the ARM64 Runner emulator, allowing you to modify code and behavior of running ARM64 binaries without restarting or recompiling. It supports hot reload, JSON-based patches, new patch types (INLINE, INSERT, NEW_FUNC), and deep integration with JIT, CLI, and the update system.
 
-## File Structure
+---
 
-```
-project_root/
-├── src/                    - Source code
-│   ├── arm64_runner.c  - Main ARM64 interpreter
-│   └── livepatch.c         - Livepatch system
-├── include/                - Header files
-│   └── livepatch.h         - Livepatch header
-├── examples/               - Usage examples
-│   ├── livepatch_example.c         - Livepatch demo
-│   ├── livepatch_security_demo.c   - Security patch example
-│   ├── security_patch_example.c    - Another patch example
-│   ├── test_patch.lpatch           - Patch file example
-│   └── livepatch_example           - Compiled example
-├── tests/                  - Tests
-│   ├── add                 - Test program
-│   ├── hello.s             - Test ASM file
-│   └── hello               - Test binary
-├── docs/                   - Documentation
-│   ├── RC3_Livepatch_Persistent_Idea.md - Livepatch idea description
-│   └── README.md           - Main documentation
-├── patches/                - Patch files (currently empty)
-├── Makefile                - Build system
-├── PROJECT_STRUCTURE.md    - Project structure description
-└── README.md               - Main project description
-```
+# 2. Architecture
 
-## Quick Start
+## Components
+- **Livepatch Core**: Manages patch application, revert, and tracking.
+- **Patch Types**:
+  - **INLINE**: Replace existing instruction.
+  - **INSERT**: Insert new code at runtime.
+  - **NEW_FUNC**: Add new functions dynamically.
+  - **JSON Patch**: Structured patch description for automation and scripting.
+- **Hot Reload**: Patches can be updated on the fly without stopping the runner.
+- **Integration**:
+  - **ARM64 Runner**: Livepatch hooks into the interpreter core.
+  - **JIT**: Patches can target both interpreted and JIT-compiled code.
+  - **update_module**: Patches and system updates are coordinated.
 
-### Build
+---
 
-```bash
-make
-```
+# 3. Usage
 
-### Run Demo
+## CLI Usage
 
-```bash
-./livepatch_example demo
-```
+- List patches:
+  ```bash
+  ./arm64_runner --livepatch-list
+  ```
+- Apply patch from file (text or JSON):
+  ```bash
+  ./arm64_runner --livepatch-load my_patch.json
+  ```
+- Hot reload patches:
+  ```bash
+  ./arm64_runner --livepatch-reload
+  ```
+- Apply patch interactively:
+  ```bash
+  ./arm64_runner --livepatch-apply 0x4001000 0xD503201F "NOP patch"
+  ```
 
-### Run Tests
-
-```bash
-make test
-```
-
-## API
-
-### Initialization and Cleanup
-
-```c
-// Initialize the system
-LivePatchSystem* livepatch_init(void* memory, size_t mem_size, uint64_t base_addr);
-
-// Cleanup the system
-void livepatch_cleanup(LivePatchSystem* system);
-```
-
-### Main Operations
-
-```c
-// Apply a patch
-int livepatch_apply(LivePatchSystem* system, uint64_t target_addr, 
-                   uint32_t new_instr, const char* description);
-
-// Revert a patch
-int livepatch_revert(LivePatchSystem* system, uint64_t target_addr);
-
-// Revert all patches
-int livepatch_revert_all(LivePatchSystem* system);
-```
-
-### Specialized Patches
-
-```c
-// Create a NOP patch
-int livepatch_create_nop(LivePatchSystem* system, uint64_t addr, const char* description);
-
-// Create a branch patch
-int livepatch_create_branch(LivePatchSystem* system, uint64_t from_addr, 
-                           uint64_t to_addr, const char* description);
-```
-
-### File Operations
-
-```c
-// Save patches to file
-int livepatch_save_to_file(LivePatchSystem* system, const char* filename);
-
-// Load patches from file
-int livepatch_load_from_file(LivePatchSystem* system, const char* filename);
-```
-
-### Information and Statistics
-
-```c
-// List all patches
-void livepatch_list(LivePatchSystem* system);
-
-// System statistics
-void livepatch_stats(LivePatchSystem* system);
-
-// Demo
-void livepatch_demo(LivePatchSystem* system);
-```
-
-## Usage Examples
-
-### Basic Patch Application
+## API Usage (C)
 
 ```c
 #include "livepatch.h"
 
-// Initialization
-void* memory = malloc(1024 * 1024);
-LivePatchSystem* system = livepatch_init(memory, 1024 * 1024, 0x400000);
+// Initialize
+LivePatchSystem* system = livepatch_init(memory, mem_size, base_addr);
 
-// Apply a patch
+// Apply INLINE patch
 livepatch_apply(system, 0x4001000, 0xD503201F, "NOP patch");
+
+// Insert new function
+livepatch_insert_func(system, 0x4002000, my_func_ptr, "New handler");
+
+// Load JSON patch
+livepatch_load_json(system, "patches/patch.json");
+
+// Hot reload
+livepatch_reload(system);
+
+// List patches
+livepatch_list(system);
 
 // Cleanup
 livepatch_cleanup(system);
-free(memory);
 ```
 
-### Create a NOP Patch
+## Patch File Formats
 
-```c
-// Replace instruction at 0x4001000 with NOP
-livepatch_create_nop(system, 0x4001000, "Disable check");
-```
+- **Text**:
+  ```
+  # addr instruction description
+  4001000 D503201F NOP patch
+  4002000 14000001 Branch to handler
+  ```
+- **JSON**:
+  ```json
+  [
+    {"type": "INLINE", "addr": "0x4001000", "instr": "0xD503201F", "desc": "NOP patch"},
+    {"type": "INSERT", "addr": "0x4002000", "code": "...", "desc": "Insert code"}
+  ]
+  ```
 
-### Create a Branch Patch
+---
 
-```c
-// Create a branch from 0x4001000 to 0x4002000
-livepatch_create_branch(system, 0x4001000, 0x4002000, "Jump to handler");
-```
+# 4. Update System & auto_update
 
-### Working with Patch Files
+- **auto_update**: If enabled in `arm64runner.conf`, the runner checks for updates and patches on every start.
+- **Channels**:
+  - **Stable**: Only stable releases.
+  - **RC**: Release candidates (enable in config).
+- **How it works**:
+  - On startup, the runner queries GitHub for `.tar.gz` assets.
+  - Compares current version (major/minor/build/rc) with available.
+  - Downloads and applies update if newer found.
+  - RC builds are named `arm64_runner` (no suffix), RC number is internal.
+- **Config example**:
+  ```ini
+  [update]
+  auto_update = true
+  channel = rc
+  ```
 
-```c
-// Save current patches
-livepatch_save_to_file(system, "my_patches.txt");
+---
 
-// Load patches from file
-livepatch_load_from_file(system, "my_patches.txt");
-```
+# 5. Debugging & Troubleshooting
 
-## Patch File Format
+- **Enable debug output**:
+  ```c
+  #define LIVEPATCH_DEBUG 1
+  ```
+- **CLI debug flags**:
+  ```bash
+  ./arm64_runner --livepatch-debug
+  ```
+- **Common issues**:
+  - Patch not applied: check address and instruction validity.
+  - Hot reload fails: ensure patch file is valid JSON or text.
+  - Update not detected: check `auto_update` and network access.
 
-The patch file uses a simple text format:
+---
 
-```
-# Comment
-# Format: address instruction description
-4001000 D503201F NOP patch for debugging
-4002000 14000001 Jump to error handler
-4003000 12345678 Custom instruction
-```
+# Livepatch для ARM64 Runner
 
-## Integration with ARM64 Runner
+---
 
-To integrate with your ARM64 interpreter:
+# 1. Обзор
 
-1. Include the header file:
+Livepatch — это система динамического патчинга для эмулятора ARM64 Runner, позволяющая изменять код и поведение исполняемых ARM64 бинарников без перезапуска и перекомпиляции. Поддерживает горячую перезагрузку, JSON-патчи, новые типы патчей (INLINE, INSERT, NEW_FUNC), глубокую интеграцию с JIT, CLI и системой обновлений.
+
+---
+
+# 2. Архитектура
+
+## Компоненты
+- **Ядро Livepatch**: Управляет применением, откатом и учётом патчей.
+- **Типы патчей**:
+  - **INLINE**: Замена существующей инструкции.
+  - **INSERT**: Вставка нового кода во время исполнения.
+  - **NEW_FUNC**: Динамическое добавление новых функций.
+  - **JSON-патч**: Структурированное описание патча для автоматизации и скриптов.
+- **Горячая перезагрузка**: Патчи можно обновлять на лету без остановки runner.
+- **Интеграция**:
+  - **ARM64 Runner**: Livepatch встраивается в ядро интерпретатора.
+  - **JIT**: Патчи могут применяться как к интерпретируемому, так и к JIT-коду.
+  - **update_module**: Патчи и обновления системы координируются.
+
+---
+
+# 3. Использование
+
+## Использование через CLI
+
+- Список патчей:
+  ```bash
+  ./arm64_runner --livepatch-list
+  ```
+- Применить патч из файла (текст или JSON):
+  ```bash
+  ./arm64_runner --livepatch-load my_patch.json
+  ```
+- Горячая перезагрузка патчей:
+  ```bash
+  ./arm64_runner --livepatch-reload
+  ```
+- Применить патч вручную:
+  ```bash
+  ./arm64_runner --livepatch-apply 0x4001000 0xD503201F "NOP patch"
+  ```
+
+## Использование через API (C)
+
 ```c
 #include "livepatch.h"
-```
 
-2. Initialize the system after creating the state:
-```c
-// In init_arm64_state or main
-LivePatchSystem* livepatch_system = livepatch_init(state->memory, 
-                                                  state->mem_size, 
-                                                  state->base_addr);
-livepatch_set_system(livepatch_system);
-```
+// Инициализация
+LivePatchSystem* system = livepatch_init(memory, mem_size, base_addr);
 
-3. Cleanup before exit:
-```c
-// In main before return
-livepatch_cleanup(livepatch_get_system());
-```
+// Применить INLINE-патч
+livepatch_apply(system, 0x4001000, 0xD503201F, "NOP patch");
 
-## Makefile Commands
+// Вставить новую функцию
+livepatch_insert_func(system, 0x4002000, my_func_ptr, "New handler");
 
-```bash
-make              # Build all targets
-make clean        # Clean object files
-make test         # Run tests
-make demo         # Run demo
-make create-patches # Create a patch file
-make load-patches # Load patches from file
-make memory-demo  # Memory demo
-make help         # Show help
-```
+// Загрузить JSON-патч
+livepatch_load_json(system, "patches/patch.json");
 
-## Requirements
+// Горячая перезагрузка
+livepatch_reload(system);
 
-- GCC or compatible C compiler
-- POSIX-compliant system (Linux, macOS, BSD)
-- pthread library
-
-## Security
-
-- All memory operations are protected by mutexes
-- Address validation before patching
-- Memory bounds checking
-- Safe resource cleanup
-
-## Performance
-
-- Supports up to 1000 patches simultaneously
-- Fast patch application and revert
-- Minimal synchronization overhead
-
-## Debugging
-
-To enable debug information, add to your code:
-
-```c
-// Enable tracing
-#define LIVEPATCH_DEBUG 1
-
-// Or use existing functions
+// Список патчей
 livepatch_list(system);
-livepatch_stats(system);
+
+// Очистка
+livepatch_cleanup(system);
 ```
 
-## License
+## Форматы файлов патчей
 
-This code is distributed under the MIT license.
+- **Текстовый**:
+  ```
+  # addr instruction описание
+  4001000 D503201F NOP patch
+  4002000 14000001 Переход к обработчику
+  ```
+- **JSON**:
+  ```json
+  [
+    {"type": "INLINE", "addr": "0x4001000", "instr": "0xD503201F", "desc": "NOP patch"},
+    {"type": "INSERT", "addr": "0x4002000", "code": "...", "desc": "Вставка кода"}
+  ]
+  ```
 
-## Author
+---
 
-Livepatch system created for the ARM64 Runner interpreter.
+# 4. Система обновлений и auto_update
 
-## Support
+- **auto_update**: Если включено в `arm64runner.conf`, runner проверяет обновления и патчи при каждом запуске.
+- **Каналы**:
+  - **Stable**: Только стабильные релизы.
+  - **RC**: Кандидаты в релизы (включается в конфиге).
+- **Как работает**:
+  - При запуске runner ищет `.tar.gz`-архивы на GitHub.
+  - Сравнивает текущую версию (major/minor/build/rc) с доступными.
+  - Скачивает и применяет обновление, если найдено более новое.
+  - RC-сборки называются `arm64_runner` (без суффикса), номер RC — только во внутренней версии.
+- **Пример конфига**:
+  ```ini
+  [update]
+  auto_update = true
+  channel = rc
+  ```
 
-If you encounter problems:
-1. Run tests: `make test`
-2. Check the documentation
-3. Create an issue with a description of the problem 
+---
+
+# 5. Отладка и устранение проблем
+
+- **Включить отладочный вывод**:
+  ```c
+  #define LIVEPATCH_DEBUG 1
+  ```
+- **CLI-флаги отладки**:
+  ```bash
+  ./arm64_runner --livepatch-debug
+  ```
+- **Частые проблемы**:
+  - Патч не применяется: проверьте адрес и корректность инструкции.
+  - Горячая перезагрузка не работает: убедитесь, что файл патча валиден (JSON или текст).
+  - Обновление не находится: проверьте `auto_update` и доступ к сети.
+
+--- 
