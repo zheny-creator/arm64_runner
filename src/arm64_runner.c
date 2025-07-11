@@ -1724,6 +1724,10 @@ void interpret_arm64(Arm64State* state) {
                 state->q[rd][1] = (state->q[rd][1] << imm) | (state->q[rn][1] & ((1ULL << imm) - 1));
                 break;
             }
+            case 0: { // stub для неизвестного/неиспользуемого syscall 0
+                state->x[0] = -ENOSYS;
+                break;
+            }
             default: {
                 int ascii_count = 0;
                 // Проверяем, не лежит ли по адресу PC-4 ASCII-строка (printable)
