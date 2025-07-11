@@ -28,6 +28,7 @@
 #include "update_module.h"
 #include "wayland_basic.h"
 #include "version.h"
+#include "module_jit.h"
 #ifdef NO_UPDATE_MODULE
 int run_update() {
     printf("Update module is not included in this build.\n");
@@ -2710,6 +2711,23 @@ static void print_version_info() {
 }
 
 int main(int argc, char** argv) {
+    int jit_requested = 0;
+    int experimental_enable = 0;
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--jit") == 0) jit_requested = 1;
+        if (strcmp(argv[i], "--experemental_enable") == 0) experimental_enable = 1;
+    }
+    if (jit_requested) {
+        if (!experimental_enable) {
+            printf("[JIT] Данный параметр будет работать только в релизной 1.2, но набрав --experemental_enable можно включить ее.\n");
+            return 0;
+        } else {
+            printf("[JIT] Экспериментальный режим JIT активирован!\n");
+            int res = jit_compile_simple_add(2, 3);
+            printf("[JIT] jit_compile_simple_add(2, 3) = %d\n", res);
+            return 0;
+        }
+    }
     if (argc >= 2 && (strcmp(argv[1], "--about") == 0 || strcmp(argv[1], "--version") == 0)) {
         print_version_info();
         return 0;
@@ -2921,4 +2939,223 @@ static int print_latest_github_rc_changelog() {
 __attribute__((weak)) int run_update() {
     printf("Update module is not included in this build.\n");
     return 0;
+}
+
+// --- Структура для хранения загруженной .so библиотеки ---
+typedef struct {
+    char name[256];
+    uint8_t* base_addr;
+    size_t mem_size;
+    // Таблица символов: имя → адрес
+    struct {
+        char sym_name[128];
+        uint64_t addr;
+    } symbols[1024];
+    int symbol_count;
+    // Зависимости (DT_NEEDED)
+    char needed[8][256];
+    int needed_count;
+} LoadedLibrary;
+
+#define MAX_LOADED_LIBS 16
+static LoadedLibrary loaded_libs[MAX_LOADED_LIBS];
+static int loaded_libs_count = 0;
+
+// --- Проверка, загружена ли уже библиотека по имени ---
+static int is_so_loaded(const char* name) {
+    for (int i = 0; i < loaded_libs_count; ++i) {
+        if (strcmp(loaded_libs[i].name, name) == 0) return 1;
+    }
+    return 0;
+}
+
+// --- Загрузка ELF .so (ET_DYN) в память ---
+// Возвращает индекс в loaded_libs или -1 при ошибке
+int load_so_library(const char* filename) {
+    if (loaded_libs_count >= MAX_LOADED_LIBS) {
+        fprintf(stderr, "[SO LOAD] Превышен лимит загруженных библиотек\n");
+        return -1;
+    }
+    if (is_so_loaded(filename)) {
+        // Уже загружена
+        return 0;
+    }
+    FILE* file = fopen(filename, "rb");
+    if (!file) {
+        perror("fopen");
+        return -1;
+    }
+    Elf64_Ehdr ehdr;
+    if (fread(&ehdr, sizeof(ehdr), 1, file) != 1) {
+        fprintf(stderr, "[SO LOAD] Не удалось прочитать ELF header\n");
+        fclose(file);
+        return -1;
+    }
+    if (ehdr.e_ident[EI_MAG0] != ELFMAG0 ||
+        ehdr.e_ident[EI_MAG1] != ELFMAG1 ||
+        ehdr.e_ident[EI_MAG2] != ELFMAG2 ||
+        ehdr.e_ident[EI_MAG3] != ELFMAG3) {
+        fprintf(stderr, "[SO LOAD] Файл не является ELF\n");
+        fclose(file);
+        return -1;
+    }
+    if (ehdr.e_type != ET_DYN) {
+        fprintf(stderr, "[SO LOAD] Файл не является shared object (ET_DYN)\n");
+        fclose(file);
+        return -1;
+    }
+    // --- Определяем диапазон памяти для сегментов PT_LOAD ---
+    uint64_t min_addr = (uint64_t)-1;
+    uint64_t max_addr = 0;
+    fseek(file, ehdr.e_phoff, SEEK_SET);
+    for (int i = 0; i < ehdr.e_phnum; i++) {
+        Elf64_Phdr phdr;
+        if (fread(&phdr, sizeof(phdr), 1, file) != 1) {
+            fprintf(stderr, "[SO LOAD] Не удалось прочитать program header %d\n", i);
+            fclose(file);
+            return -1;
+        }
+        if (phdr.p_type == PT_LOAD) {
+            if (phdr.p_vaddr < min_addr) min_addr = phdr.p_vaddr;
+            if (phdr.p_vaddr + phdr.p_memsz > max_addr) max_addr = phdr.p_vaddr + phdr.p_memsz;
+        }
+    }
+    if (min_addr == (uint64_t)-1 || max_addr <= min_addr) {
+        fprintf(stderr, "[SO LOAD] Нет PT_LOAD сегментов\n");
+        fclose(file);
+        return -1;
+    }
+    size_t mem_size = max_addr - min_addr;
+    uint8_t* so_mem = (uint8_t*)malloc(mem_size);
+    if (!so_mem) {
+        fprintf(stderr, "[SO LOAD] Не удалось выделить память для .so\n");
+        fclose(file);
+        return -1;
+    }
+    memset(so_mem, 0, mem_size); // zero-fill
+    // --- Загружаем сегменты PT_LOAD ---
+    fseek(file, ehdr.e_phoff, SEEK_SET);
+    for (int i = 0; i < ehdr.e_phnum; i++) {
+        Elf64_Phdr phdr;
+        if (fread(&phdr, sizeof(phdr), 1, file) != 1) {
+            fprintf(stderr, "[SO LOAD] Не удалось прочитать program header %d (2)\n", i);
+            free(so_mem);
+            fclose(file);
+            return -1;
+        }
+        if (phdr.p_type == PT_LOAD && phdr.p_filesz > 0) {
+            fseek(file, phdr.p_offset, SEEK_SET);
+            size_t offset = phdr.p_vaddr - min_addr;
+            if (offset + phdr.p_filesz > mem_size) {
+                fprintf(stderr, "[SO LOAD] PT_LOAD выходит за пределы выделенной памяти\n");
+                free(so_mem);
+                fclose(file);
+                return -1;
+            }
+            if (fread(so_mem + offset, phdr.p_filesz, 1, file) != 1) {
+                fprintf(stderr, "[SO LOAD] Не удалось загрузить сегмент\n");
+                free(so_mem);
+                fclose(file);
+                return -1;
+            }
+        }
+    }
+    // --- Сохраняем информацию о библиотеке ---
+    LoadedLibrary* lib = &loaded_libs[loaded_libs_count];
+    strncpy(lib->name, filename, sizeof(lib->name)-1);
+    lib->base_addr = so_mem;
+    lib->mem_size = mem_size;
+    lib->symbol_count = 0;
+    lib->needed_count = 0;
+
+    // --- Парсим секции .dynsym и .dynstr для построения таблицы символов ---
+    fseek(file, ehdr.e_shoff, SEEK_SET);
+    Elf64_Shdr* shdrs = malloc(ehdr.e_shnum * sizeof(Elf64_Shdr));
+    if (!shdrs) {
+        fprintf(stderr, "[SO LOAD] Не удалось выделить память для секций\n");
+        free(so_mem);
+        return -1;
+    }
+    if (fread(shdrs, sizeof(Elf64_Shdr), ehdr.e_shnum, file) != ehdr.e_shnum) {
+        fprintf(stderr, "[SO LOAD] Не удалось прочитать секции\n");
+        free(so_mem); free(shdrs);
+        return -1;
+    }
+    char* shstrtab = NULL;
+    if (ehdr.e_shstrndx != SHN_UNDEF) {
+        Elf64_Shdr* shstr = &shdrs[ehdr.e_shstrndx];
+        shstrtab = malloc(shstr->sh_size);
+        fseek(file, shstr->sh_offset, SEEK_SET);
+        fread(shstrtab, 1, shstr->sh_size, file);
+    }
+    Elf64_Shdr* dynsym = NULL;
+    Elf64_Shdr* dynstr = NULL;
+    Elf64_Shdr* dynamic = NULL;
+    for (int i = 0; i < ehdr.e_shnum; ++i) {
+        const char* secname = shstrtab ? (shstrtab + shdrs[i].sh_name) : "";
+        if (strcmp(secname, ".dynsym") == 0) dynsym = &shdrs[i];
+        if (strcmp(secname, ".dynstr") == 0) dynstr = &shdrs[i];
+        if (strcmp(secname, ".dynamic") == 0) dynamic = &shdrs[i];
+    }
+    if (dynsym && dynstr) {
+        char* dynstrtab = malloc(dynstr->sh_size);
+        fseek(file, dynstr->sh_offset, SEEK_SET);
+        fread(dynstrtab, 1, dynstr->sh_size, file);
+        int nsyms = dynsym->sh_size / sizeof(Elf64_Sym);
+        Elf64_Sym* syms = malloc(dynsym->sh_size);
+        fseek(file, dynsym->sh_offset, SEEK_SET);
+        fread(syms, sizeof(Elf64_Sym), nsyms, file);
+        for (int i = 0; i < nsyms && lib->symbol_count < 1024; ++i) {
+            if (syms[i].st_name == 0) continue;
+            if (ELF64_ST_TYPE(syms[i].st_info) != STT_FUNC && ELF64_ST_TYPE(syms[i].st_info) != STT_OBJECT) continue;
+            strncpy(lib->symbols[lib->symbol_count].sym_name, dynstrtab + syms[i].st_name, 127);
+            lib->symbols[lib->symbol_count].addr = syms[i].st_value;
+            lib->symbol_count++;
+        }
+        free(dynstrtab);
+        free(syms);
+    }
+    // --- Парсим секцию .dynamic для зависимостей DT_NEEDED ---
+    if (dynamic && dynstr) {
+        int nentries = dynamic->sh_size / sizeof(Elf64_Dyn);
+        Elf64_Dyn* dyns = malloc(dynamic->sh_size);
+        fseek(file, dynamic->sh_offset, SEEK_SET);
+        fread(dyns, sizeof(Elf64_Dyn), nentries, file);
+        for (int i = 0; i < nentries && lib->needed_count < 8; ++i) {
+            if (dyns[i].d_tag == DT_NEEDED) {
+                const char* dep = ((char*)0);
+                if (dyns[i].d_un.d_val < dynstr->sh_size) {
+                    dep = (char*)(dyns[i].d_un.d_val);
+                    fseek(file, dynstr->sh_offset + dyns[i].d_un.d_val, SEEK_SET);
+                    fread(lib->needed[lib->needed_count], 1, 255, file);
+                    lib->needed[lib->needed_count][255] = 0;
+                    // Загружаем зависимость, если не загружена
+                    if (!is_so_loaded(lib->needed[lib->needed_count])) {
+                        load_so_library(lib->needed[lib->needed_count]);
+                    }
+                    lib->needed_count++;
+                }
+            }
+        }
+        free(dyns);
+    }
+    if (shstrtab) free(shstrtab);
+    free(shdrs);
+    loaded_libs_count++;
+    printf("[SO LOAD] Загружена библиотека: %s, память: %zu байт, base=0x%lX, symbols: %d, needed: %d\n", filename, mem_size, (unsigned long)min_addr, lib->symbol_count, lib->needed_count);
+    fclose(file);
+    return loaded_libs_count - 1;
+}
+
+// --- Поиск символа по имени среди всех загруженных библиотек ---
+uint64_t find_so_symbol(const char* name) {
+    for (int i = 0; i < loaded_libs_count; ++i) {
+        for (int j = 0; j < loaded_libs[i].symbol_count; ++j) {
+            if (strcmp(loaded_libs[i].symbols[j].sym_name, name) == 0) {
+                // Возвращаем смещённый адрес (от base_addr)
+                return (uint64_t)(loaded_libs[i].base_addr) + loaded_libs[i].symbols[j].addr;
+            }
+        }
+    }
+    return 0; // not found
 }

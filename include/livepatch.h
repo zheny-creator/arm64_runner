@@ -3,6 +3,10 @@
  * See LICENSE-MPL or https://mozilla.org/MPL/2.0/.
  */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef LIVEPATCH_H
 #define LIVEPATCH_H
 
@@ -49,3 +53,7 @@ int is_nop_instruction(uint32_t instr);
 #define LIVEPATCH_MAX_DESCRIPTION 256
 
 #endif // LIVEPATCH_H 
+
+#ifdef __cplusplus
+}
+#endif 

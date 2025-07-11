@@ -11,15 +11,15 @@
 
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -O2 -g -Iinclude -ldl
-LDFLAGS = -lpthread -lssl -lcrypto -lwayland-client -lm -lcjson -lcurl
-LDLIBS += -lcurl
+LDFLAGS = -lpthread -lssl -lcrypto -lwayland-client -lm -lcjson -lcurl -lasmjit
+LDLIBS += -lcurl -lasmjit
 
 # Основные цели
-TARGETS = arm64_runner update_module
+TARGETS = arm64_runner update_module module_jit
 
 # Объектные файлы
 LIVEPATCH_OBJS = src/livepatch.o
-RUNNER_OBJS = src/arm64_runner.o
+RUNNER_OBJS = src/arm64_runner.o modules/livepatch.o modules/module_jit.o src/wayland_basic.o src/xdg-shell-client-protocol.o
 
 SRC = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c src/xdg-shell-client-protocol.c
 SRC_NOUPDATE = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c src/xdg-shell-client-protocol.c
@@ -44,15 +44,60 @@ $(BIN): $(SRC)
 		-DRC_NUMBER=0 \
 		-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 ))
 
-# Компиляция объектных файлов
-src/%.o: src/%.c
-	$(CC) $(CFLAGS) -c $< -o $@
+# Явные правила для объектников
+src/arm64_runner.o: src/arm64_runner.c
+	$(CC) $(CFLAGS) -Iinclude \
+	-DMARKETING_MAJOR=$(MARKETING_MAJOR) \
+	-DMARKETING_MINOR=$(MARKETING_MINOR) \
+	-DBUILD_NUMBER=$(BUILD_NUMBER) \
+	-DRC_NUMBER=$(RC) \
+	-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )) \
+	-c $< -o $@
 
 modules/livepatch.o: modules/livepatch.c include/livepatch.h
-	$(CC) $(CFLAGS) -Iinclude -c modules/livepatch.c -o modules/livepatch.o
+	$(CC) $(CFLAGS) -Iinclude \
+	-DMARKETING_MAJOR=$(MARKETING_MAJOR) \
+	-DMARKETING_MINOR=$(MARKETING_MINOR) \
+	-DBUILD_NUMBER=$(BUILD_NUMBER) \
+	-DRC_NUMBER=$(RC) \
+	-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )) \
+	-c modules/livepatch.c -o modules/livepatch.o
+
+modules/module_jit.o: modules/module_jit.cpp include/module_jit.h
+	g++ $(CXXFLAGS) -Iinclude \
+	-DMARKETING_MAJOR=$(MARKETING_MAJOR) \
+	-DMARKETING_MINOR=$(MARKETING_MINOR) \
+	-DBUILD_NUMBER=$(BUILD_NUMBER) \
+	-DRC_NUMBER=$(RC) \
+	-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )) \
+	-c modules/module_jit.cpp -o modules/module_jit.o
+
+src/wayland_basic.o: src/wayland_basic.c
+	$(CC) $(CFLAGS) -Iinclude \
+	-DMARKETING_MAJOR=$(MARKETING_MAJOR) \
+	-DMARKETING_MINOR=$(MARKETING_MINOR) \
+	-DBUILD_NUMBER=$(BUILD_NUMBER) \
+	-DRC_NUMBER=$(RC) \
+	-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )) \
+	-c src/wayland_basic.c -o src/wayland_basic.o
+
+src/xdg-shell-client-protocol.o: src/xdg-shell-client-protocol.c
+	$(CC) $(CFLAGS) -Iinclude \
+	-DMARKETING_MAJOR=$(MARKETING_MAJOR) \
+	-DMARKETING_MINOR=$(MARKETING_MINOR) \
+	-DBUILD_NUMBER=$(BUILD_NUMBER) \
+	-DRC_NUMBER=$(RC) \
+	-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )) \
+	-c src/xdg-shell-client-protocol.c -o src/xdg-shell-client-protocol.o
 
 modules/update_module.o: modules/update_module.c include/update_module.h
-	$(CC) $(CFLAGS) -Iinclude -c modules/update_module.c -o modules/update_module.o
+	$(CC) $(CFLAGS) -Iinclude \
+	-DMARKETING_MAJOR=$(MARKETING_MAJOR) \
+	-DMARKETING_MINOR=$(MARKETING_MINOR) \
+	-DBUILD_NUMBER=$(BUILD_NUMBER) \
+	-DRC_NUMBER=$(RC) \
+	-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )) \
+	-c modules/update_module.c -o modules/update_module.o
 
 update_module: modules/update_module.c
 	$(CC) $(CFLAGS) -Iinclude modules/update_module.c -o update_module $(LDFLAGS) $(LDLIBS) -lcjson \
@@ -61,6 +106,12 @@ update_module: modules/update_module.c
 		-DBUILD_NUMBER=$(BUILD_NUMBER) \
 		-DRC_NUMBER=0 \
 		-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 ))
+
+modules/module_jit.o: modules/module_jit.cpp include/module_jit.h
+	g++ -std=c++17 -O2 -g -Iinclude -c modules/module_jit.cpp -o modules/module_jit.o
+
+arm64_runner: $(RUNNER_OBJS)
+	g++ $(RUNNER_OBJS) -o arm64_runner $(LDFLAGS) $(LDLIBS) -lwayland-client -lm -lcjson -ldl -lstdc++
 
 # Очистка
 clean:
@@ -152,10 +203,10 @@ deb-noupdate: all-noupdate
 SOURCE_ARCHIVE = arm64-runner-1.0.tar.gz
 SOURCE_DIR = .
 
-$(SOURCE_ARCHIVE): arm64_runner update_module livepatch
+$(SOURCE_ARCHIVE): arm64_runner update_module livepatch module_jit
 	@rm -rf arm64-runner-1.0
 	mkdir -p arm64-runner-1.0
-	cp arm64_runner update_module livepatch arm64-runner-1.0/
+	cp arm64_runner update_module livepatch module_jit arm64-runner-1.0/
 	tar czf $(SOURCE_ARCHIVE) arm64-runner-1.0
 	rm -rf arm64-runner-1.0
 
@@ -199,23 +250,29 @@ increment_build:
 	@echo $$(( $(BUILD_NUMBER) + 1 )) > $(BUILD_COUNTER_FILE)
 
 # release: стабильная сборка
-release: increment_build arm64_runner livepatch update_module
+release: increment_build arm64_runner livepatch update_module module_jit
 	@echo "Built release: v$(MARKETING_MAJOR).$(MARKETING_MINOR) ($$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )).$(BUILD_NUMBER))"
 
 # rc: RC-кандидат, номер задаётся RC=...
 rc: increment_build
-	$(MAKE) arm64_runner-rc RC=$(RC)
-	$(MAKE) livepatch RC=$(RC)
-	$(MAKE) update_module RC=$(RC)
+	$(MAKE) RC=$(RC) MARKETING_MAJOR=$(MARKETING_MAJOR) MARKETING_MINOR=$(MARKETING_MINOR) BUILD_NUMBER=$(BUILD_NUMBER) arm64_runner-rc
+	$(MAKE) RC=$(RC) MARKETING_MAJOR=$(MARKETING_MAJOR) MARKETING_MINOR=$(MARKETING_MINOR) BUILD_NUMBER=$(BUILD_NUMBER) livepatch
+	$(MAKE) RC=$(RC) MARKETING_MAJOR=$(MARKETING_MAJOR) MARKETING_MINOR=$(MARKETING_MINOR) BUILD_NUMBER=$(BUILD_NUMBER) update_module
+	$(MAKE) RC=$(RC) MARKETING_MAJOR=$(MARKETING_MAJOR) MARKETING_MINOR=$(MARKETING_MINOR) BUILD_NUMBER=$(BUILD_NUMBER) module_jit
 
 # arm64_runner-rc: RC-кандидат, номер задаётся RC=...
-arm64_runner-rc: $(SRC_NOUPDATE)
-	$(CC) $(CFLAGS) $(SRC_NOUPDATE) -o arm64_runner-rc$(RC) $(LDFLAGS) $(LDLIBS) \
+RC_OBJS = src/arm64_runner.o modules/livepatch.o modules/module_jit.o src/wayland_basic.o src/xdg-shell-client-protocol.o
+
+arm64_runner-rc: $(RC_OBJS)
+	g++ $(RC_OBJS) -o arm64_runner-rc$(RC) $(LDFLAGS) $(LDLIBS) -lwayland-client -lm -lcjson -ldl -lstdc++ \
 		-DMARKETING_MAJOR=$(MARKETING_MAJOR) \
 		-DMARKETING_MINOR=$(MARKETING_MINOR) \
 		-DBUILD_NUMBER=$(BUILD_NUMBER) \
 		-DRC_NUMBER=$(RC) \
 		-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 ))
 	@echo "Built RC: v$(MARKETING_MAJOR).$(MARKETING_MINOR) ($$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )).$(BUILD_NUMBER)-rc$(RC))"
+
+module_jit: modules/module_jit_main.cpp modules/module_jit.o include/module_jit.h modules/livepatch.o
+	g++ $(CXXFLAGS) -Iinclude modules/module_jit_main.cpp modules/module_jit.o modules/livepatch.o -o module_jit $(LDFLAGS) $(LDLIBS)
 
 .PHONY: all clean install test demo create-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 

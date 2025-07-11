@@ -19,6 +19,10 @@
 #define RC_NUMBER 0
 #endif
 
+#ifndef VERSION_CODE
+#define VERSION_CODE (MARKETING_MAJOR * 100000 + MARKETING_MINOR * 1000)
+#endif
+
 // Формирование строки версии
 static inline void get_version_string(char *buf, size_t bufsize) {
     if (RC_NUMBER > 0) {
