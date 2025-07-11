@@ -47,13 +47,6 @@ static int file_exists(const char *filename) {
     return (stat(filename, &buffer) == 0);
 }
 
-// Проверка наличия команды в системе
-static int has_cmd(const char* cmd) {
-    char buf[256];
-    snprintf(buf, sizeof(buf), "which %s > /dev/null 2>&1", cmd);
-    return system(buf) == 0;
-}
-
 // Глобальный флаг для debug
 int update_debug = 0;
 // Глобальный флаг для RC-режима
@@ -333,14 +326,14 @@ int update_extract(const UpdateParams* params) {
     char tmpdir[64] = "tmp_update_unpack";
     char cmd[512];
     snprintf(cmd, sizeof(cmd), "rm -rf %s && mkdir -p %s", tmpdir, tmpdir);
-    system(cmd);
+    if (system(cmd) == -1) { fprintf(stderr, "system() failed\n"); }
     snprintf(cmd, sizeof(cmd), "tar -xzf '%s' -C %s", params->filename, tmpdir);
     printf("[Update] Распаковка архива во временную папку: %s\n", cmd);
     int res = system(cmd);
     if (res != 0) {
         printf("[Update] Ошибка распаковки архива!\n");
         snprintf(cmd, sizeof(cmd), "rm -rf %s", tmpdir);
-        system(cmd);
+        if (system(cmd) == -1) { fprintf(stderr, "system() failed\n"); }
         return 1;
     }
     // Найти первую вложенную папку внутри tmpdir
@@ -372,7 +365,7 @@ int update_extract(const UpdateParams* params) {
         res = system(cmd);
     }
     snprintf(cmd, sizeof(cmd), "rm -rf %s", tmpdir);
-    system(cmd);
+    if (system(cmd) == -1) { fprintf(stderr, "system() failed\n"); }
     if (res != 0) {
         printf("[Update] Ошибка копирования файлов!\n");
         return 1;

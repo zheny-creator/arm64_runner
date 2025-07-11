@@ -54,3 +54,7 @@ deb_dist/
 
 # Ignore logs
 *.log 
+
+remove_case_dups.sh
+syscall_libs.txt
+arm64_runner* 
