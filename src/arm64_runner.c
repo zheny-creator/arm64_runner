@@ -2777,21 +2777,14 @@ int main(int argc, char** argv) {
         if (strcmp(argv[i], "--debug") == 0) debug_enabled = 1;
     }
     int jit_requested = 0;
-    int experimental_enable = 0;
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--jit") == 0) jit_requested = 1;
-        if (strcmp(argv[i], "--experemental_enable") == 0) experimental_enable = 1;
     }
     if (jit_requested) {
-        if (!experimental_enable) {
-            printf("[JIT] Данный параметр будет работать только в релизной 1.2, но набрав --experemental_enable можно включить ее.\n");
-            return 0;
-        } else {
-            printf("[JIT] Экспериментальный режим JIT активирован!\n");
-            int res = jit_compile_simple_add(2, 3);
-            printf("[JIT] jit_compile_simple_add(2, 3) = %d\n", res);
-            return 0;
-        }
+        printf("[JIT] Экспериментальный режим JIT активирован!\n");
+        int res = jit_compile_simple_add(2, 3);
+        printf("[JIT] jit_compile_simple_add(2, 3) = %d\n", res);
+        return 0;
     }
     if (argc >= 2 && (strcmp(argv[1], "--about") == 0 || strcmp(argv[1], "--version") == 0)) {
         print_version_info();
@@ -2816,6 +2809,7 @@ int main(int argc, char** argv) {
         printf("--trace                 — трассировка исполнения (доп. аргумент)\n");
         printf("--debug                 — подробный вывод (доп. аргумент)\n");
         printf("--patches <file>        — загрузить livepatch-патчи из файла (.lpatch/.txt)\n");
+        printf("--jit                   — включить JIT (экспериментально)\n");
         return 0;
     }
     if (argc >= 2 && (strcmp(argv[1], "--changelog") == 0)) {
