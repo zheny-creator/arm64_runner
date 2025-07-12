@@ -26,10 +26,10 @@
 // Формирование строки версии
 static inline void get_version_string(char *buf, size_t bufsize) {
     if (RC_NUMBER > 0) {
-        snprintf(buf, bufsize, "v%d.%d (%d.%d-rc%d)",
+        snprintf(buf, bufsize, "v%d.%d (build %d.%d-rc%d)",
             MARKETING_MAJOR, MARKETING_MINOR, VERSION_CODE, BUILD_NUMBER, RC_NUMBER);
     } else {
-        snprintf(buf, bufsize, "v%d.%d (%d.%d)",
+        snprintf(buf, bufsize, "v%d.%d (build %d.%d)",
             MARKETING_MAJOR, MARKETING_MINOR, VERSION_CODE, BUILD_NUMBER);
     }
 } 
