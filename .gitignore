@@ -1,60 +1,25 @@
-# Ignore object files and binaries
+# Игнорировать бинарные файлы сборки
+arm64_runner
+livepatch
+module_jit
+update_module
+arm_runner/
+
+# Игнорировать тестовые бинарники
+/tests/hello_wayland
+/tests/hello_x86
+
+# Игнорировать временные и кэш-файлы
 *.o
+*.so
+*.a
 *.out
+*.bin
 *.exe
-*.tmp
-
-# Ignore compiled binaries in examples and tests
-examples/livepatch_example
-examples/livepatch_security_demo
-examples/security_patch_example
-tests/add
-tests/hello
-
-# Ignore deb package build directory
-deb_dist/
-*.deb
-
-# Ignore backup and temporary files
-*~
-*.bak
-*.old
-
-# Ignore editor swap files
-*.swp
-*.swo
-*.swn
-
-# Ignore logs
-*.log
-
-# Ignore executable files in src, examples, tests
-src/arm64_runner
-src/arm64_runner_rc2
-src/arm64_runner_p
-src/arm64_runner\ \(2\)
-examples/livepatch_example
-examples/livepatch_test
-examples/livepatch_security_demo
-examples/security_patch_example
-tests/executable
-tests/hello
-tests/livepatch_test
-tests/test_write_arm64
-
-# Ignore deb package build directory
-deb_dist/
-*.deb
-
-# Ignore backup and temporary files
-*~
-*.swp
-*.swo
-*.swn
-
-# Ignore logs
 *.log 
 
 remove_case_dups.sh
 syscall_libs.txt
 arm64_runner* 
+
+examples/ 
