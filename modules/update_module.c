@@ -643,6 +643,11 @@ void print_update_help() {
 } 
 
 int main(int argc, char **argv) {
+    // Запрет запуска от root
+    if (geteuid() == 0) {
+        fprintf(stderr, "[SECURITY] Запуск update_module от имени root запрещён! Используйте обычного пользователя.\n");
+        return 1;
+    }
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--about") == 0) {
             char ver[128];
