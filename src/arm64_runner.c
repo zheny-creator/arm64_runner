@@ -1985,7 +1985,68 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
             state->x[0] = 0;
             break;
         }
-        
+        case 208: // selinux_getcon
+            {
+                // SELinux getcon syscall emulation: always return fixed context string
+                // int getcon(char **context)
+                // X0: pointer to user buffer (char**), X0 = address in emulated memory
+                uint64_t user_ptr_addr = state->x[0];
+                const char* fake_context = "unconfined_u:unconfined_r:unconfined_t:s0";
+                size_t ctx_len = strlen(fake_context) + 1;
+                // Allocate space in emulated memory for context string
+                uint64_t ctx_addr = state->heap_end;
+                if (ctx_addr + ctx_len < state->base_addr + state->mem_size) {
+                    memcpy(state->memory + (ctx_addr - state->base_addr), fake_context, ctx_len);
+                    // Write pointer to context into user buffer
+                    *(uint64_t*)(state->memory + (user_ptr_addr - state->base_addr)) = ctx_addr;
+                    state->heap_end += ctx_len;
+                    state->x[0] = 0; // success
+                } else {
+                    state->x[0] = -ENOMEM;
+                }
+                break;
+            }
+            case 209: // selinux_setcon
+            {
+                // SELinux setcon syscall emulation: always return success
+                // int setcon(const char *context)
+                state->x[0] = 0;
+                break;
+            }
+            case 210: // selinux_getpidcon
+            {
+                // SELinux getpidcon syscall emulation: always return fixed context string
+                // int getpidcon(pid_t pid, char **context)
+                uint64_t user_ptr_addr = state->x[1];
+                const char* fake_context = "unconfined_u:unconfined_r:unconfined_t:s0";
+                size_t ctx_len = strlen(fake_context) + 1;
+                uint64_t ctx_addr = state->heap_end;
+                if (ctx_addr + ctx_len < state->base_addr + state->mem_size) {
+                    memcpy(state->memory + (ctx_addr - state->base_addr), fake_context, ctx_len);
+                    *(uint64_t*)(state->memory + (user_ptr_addr - state->base_addr)) = ctx_addr;
+                    state->heap_end += ctx_len;
+                    state->x[0] = 0; // success
+                } else {
+                    state->x[0] = -ENOMEM;
+                }
+                break;
+            }
+            case 211: // selinux_security_compute_av
+            {
+                // SELinux security_compute_av syscall emulation: always allow
+                // int security_compute_av(const char *scon, const char *tcon, int tclass, uint32_t *avd, uint32_t *allowed)
+                uint64_t avd_ptr = state->x[3];
+                uint64_t allowed_ptr = state->x[4];
+                if (avd_ptr && allowed_ptr) {
+                    *(uint32_t*)(state->memory + (avd_ptr - state->base_addr)) = 0xFFFFFFFF; // all bits set
+                    *(uint32_t*)(state->memory + (allowed_ptr - state->base_addr)) = 0xFFFFFFFF; // all allowed
+                    state->x[0] = 0; // success
+                } else {
+                    state->x[0] = -EFAULT;
+                }
+                break;
+            }
+
         case 13:  // rt_sigaction
         {
             // Упрощенная реализация - игнорируем сигналы
