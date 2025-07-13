@@ -492,7 +492,7 @@ static int copy_dir_safe(const char* src, const char* dst) {
             mypid);
         if (fork() == 0) {
             // В дочернем процессе
-            system(cmd);
+            (void)system(cmd);
             exit(0);
         }
     }

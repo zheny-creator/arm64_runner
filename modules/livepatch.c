@@ -373,7 +373,7 @@ int livepatch_load_from_json(LivePatchSystem* system, const char* filename) {
     fseek(file, 0, SEEK_SET);
     char* json_data = malloc(fsize + 1);
     if (!json_data) { fclose(file); return -1; }
-    fread(json_data, 1, fsize, file);
+    (void)fread(json_data, 1, fsize, file);
     json_data[fsize] = 0;
     fclose(file);
     cJSON* root = cJSON_Parse(json_data);

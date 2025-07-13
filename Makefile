@@ -264,3 +264,31 @@ module_jit: modules/module_jit_main.cpp modules/module_jit.o include/module_jit.
 	g++ $(CXXFLAGS) -Iinclude modules/module_jit_main.cpp modules/module_jit.o modules/livepatch.o -o module_jit $(LDFLAGS) $(LDLIBS)
 
 .PHONY: all clean install test demo create-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 
+
+# Установка зависимостей для популярных дистрибутивов
+.PHONY: dependencies
+
+dependencies:
+	@echo "[INFO] Определение дистрибутива и установка зависимостей..."
+	@if [ -f /etc/os-release ]; then \
+	    . /etc/os-release; \
+	    if echo "$ID" | grep -Eq 'ubuntu|debian'; then \
+	        echo "[INFO] Ubuntu/Debian detected"; \
+	        sudo apt update && \
+	        sudo apt install -y build-essential gcc g++ make libssl-dev libwayland-dev libcjson-dev libcurl4-openssl-dev libasmjit-dev pkg-config wayland-protocols curl tar gzip dpkg-dev; \
+	    elif echo "$ID" | grep -Eq 'fedora|rhel|centos'; then \
+	        echo "[INFO] Fedora/RHEL/CentOS detected"; \
+	        sudo dnf install -y gcc gcc-c++ make openssl-devel wayland-devel cjson-devel libcurl-devel asmjit-devel pkgconf-pkg-config wayland-protocols-devel curl tar gzip rpm-build meson; \
+	    elif echo "$ID" | grep -Eq 'arch'; then \
+	        echo "[INFO] Arch Linux detected"; \
+	        sudo pacman -Sy --noconfirm base-devel gcc openssl wayland cjson curl asmjit pkgconf wayland-protocols tar gzip; \
+	    elif echo "$ID" | grep -Eq 'alt'; then \
+	        echo "[INFO] ALT Linux detected"; \
+	        sudo apt-get update && \
+	        sudo apt-get install -y gcc gcc-c++ make openssl-devel wayland-devel cjson-devel libcurl-devel asmjit-devel pkgconf-pkg-config wayland-protocols-devel curl tar gzip rpm-build meson rpm-macros-meson rpm-build-xdg; \
+	    else \
+	        echo "[WARN] Неизвестный дистрибутив: $ID. Установите зависимости вручную."; \
+	    fi; \
+	else \
+	    echo "[ERROR] Не удалось определить дистрибутив (нет /etc/os-release). Установите зависимости вручную."; \
+	fi 

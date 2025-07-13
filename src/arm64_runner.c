@@ -2920,7 +2920,7 @@ int main(int argc, char** argv) {
         const char* patch_file = argv[2];
         const char* ext = strrchr(patch_file, '.');
         int is_json = (ext && strcmp(ext, ".json") == 0);
-        int res = livepatch_reload_patches(livepatch_get_system(), patch_file, is_json);
+        livepatch_reload_patches(livepatch_get_system(), patch_file, is_json);
         return 0;
     }
     if (argc < 2) {
