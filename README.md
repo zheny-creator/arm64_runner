@@ -17,6 +17,8 @@ It supports livepatching (hot patching) of emulated code at runtime and automati
 - Automatic update from GitHub Releases (tar.gz archives only)
 - Example programs and test suite included
 
+> **Note:** The project is implemented in C (with a planned transition to C++). The transition from interpretation to JIT compilation will be tested in a separate branch. Over time, the JIT compiler will gradually replace the interpreter as its capabilities expand.
+
 ### Quick Start
 
 #### Build
@@ -71,6 +73,8 @@ then the update check will be performed automatically on every program start (un
 - Безопасность: защита памяти, валидация адресов, отчёты об уязвимостях
 - Автоматическое обновление из GitHub Releases (**только tar.gz архивы**)
 - Примеры программ и тесты в комплекте
+
+> **Внимание:** Проект реализован на языке C (в будущем планируется переход на C++). Переход от интерпретации к JIT-компиляции будет тестироваться в отдельной ветке. По мере развития JIT-компилятора он постепенно вытеснит интерпретатор.
 
 ### Быстрый старт
 
