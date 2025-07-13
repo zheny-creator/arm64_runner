@@ -1,18 +1,18 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include "update_module.h"
 #include <string.h>
 #include <stdlib.h>
-#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <sys/utsname.h>
 #include <curl/curl.h>
 #include <stdint.h>
 #include <cjson/cJSON.h>
-#define _POSIX_C_SOURCE 200809L
 #include <sys/wait.h>
 #include <getopt.h>
 #include <dirent.h>
-#include <sys/types.h>
 #include <errno.h>
 #define RUNNER_VERSION "1.1-rc2"
 #include "version.h"

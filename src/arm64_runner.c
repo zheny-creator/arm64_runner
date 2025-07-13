@@ -17,8 +17,10 @@
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/ioctl.h>
+#include <sys/sysinfo.h>
 #include <openssl/aes.h>
 #include <openssl/sha.h>
+#include <openssl/evp.h>
 #include <sys/un.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -1533,18 +1535,24 @@ void interpret_arm64(Arm64State* state) {
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
-                AES_KEY key;
-                AES_set_decrypt_key((const unsigned char*)&state->q[rm][0], 128, &key);
-                AES_decrypt((const unsigned char*)&state->q[rn][0], (unsigned char*)&state->q[rd][0], &key);
+                EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+                int outlen = 0;
+                EVP_DecryptInit_ex(ctx, EVP_aes_128_ecb(), NULL, (const unsigned char*)&state->q[rm][0], NULL);
+                EVP_DecryptUpdate(ctx, (unsigned char*)&state->q[rd][0], &outlen, (const unsigned char*)&state->q[rn][0], 16);
+                EVP_DecryptFinal_ex(ctx, (unsigned char*)&state->q[rd][0] + outlen, &outlen);
+                EVP_CIPHER_CTX_free(ctx);
                 break;
             }
             case 0xF3: {  // AESE (AES Encrypt) [реализация]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
-                AES_KEY key;
-                AES_set_encrypt_key((const unsigned char*)&state->q[rm][0], 128, &key);
-                AES_encrypt((const unsigned char*)&state->q[rn][0], (unsigned char*)&state->q[rd][0], &key);
+                EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+                int outlen = 0;
+                EVP_EncryptInit_ex(ctx, EVP_aes_128_ecb(), NULL, (const unsigned char*)&state->q[rm][0], NULL);
+                EVP_EncryptUpdate(ctx, (unsigned char*)&state->q[rd][0], &outlen, (const unsigned char*)&state->q[rn][0], 16);
+                EVP_EncryptFinal_ex(ctx, (unsigned char*)&state->q[rd][0] + outlen, &outlen);
+                EVP_CIPHER_CTX_free(ctx);
                 break;
             }
             case 0xF4: {  // AESIMC (AES Inverse Mix Columns) [имитация]
@@ -1558,36 +1566,34 @@ void interpret_arm64(Arm64State* state) {
             case 0xF6: {  // SHA1C [реализация]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
-                SHA_CTX ctx;
-                SHA1_Init(&ctx);
-                SHA1_Update(&ctx, &state->q[rn][0], 16);
-                SHA1_Final((unsigned char*)&state->q[rd][0], &ctx);
+                EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+                unsigned int mdlen = 0;
+                EVP_DigestInit_ex(mdctx, EVP_sha1(), NULL);
+                EVP_DigestUpdate(mdctx, &state->q[rn][0], 16);
+                EVP_DigestFinal_ex(mdctx, (unsigned char*)&state->q[rd][0], &mdlen);
+                EVP_MD_CTX_free(mdctx);
                 break;
             }
             case 0xF7: {  // SHA1M [реализация]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
-                SHA_CTX ctx;
-                SHA1_Init(&ctx);
-                SHA1_Update(&ctx, &state->q[rn][0], 16);
-                SHA1_Final((unsigned char*)&state->q[rd][0], &ctx);
+                EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+                unsigned int mdlen = 0;
+                EVP_DigestInit_ex(mdctx, EVP_sha1(), NULL);
+                EVP_DigestUpdate(mdctx, &state->q[rn][0], 16);
+                EVP_DigestFinal_ex(mdctx, (unsigned char*)&state->q[rd][0], &mdlen);
+                EVP_MD_CTX_free(mdctx);
                 break;
             }
             case 0xF8: {  // SHA1P [реализация]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
-                SHA_CTX ctx;
-                SHA1_Init(&ctx);
-                SHA1_Update(&ctx, &state->q[rn][0], 16);
-                SHA1_Final((unsigned char*)&state->q[rd][0], &ctx);
-                break;
-            }
-            case 0xF9: {  // SHA1SU0 [реализация]
-                // Имитация: просто копируем
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                state->q[rd][0] = state->q[rn][0];
-                state->q[rd][1] = state->q[rn][1];
+                EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+                unsigned int mdlen = 0;
+                EVP_DigestInit_ex(mdctx, EVP_sha1(), NULL);
+                EVP_DigestUpdate(mdctx, &state->q[rn][0], 16);
+                EVP_DigestFinal_ex(mdctx, (unsigned char*)&state->q[rd][0], &mdlen);
+                EVP_MD_CTX_free(mdctx);
                 break;
             }
             case 0xFA: {  // SHA1SU1 [реализация]
@@ -1601,19 +1607,23 @@ void interpret_arm64(Arm64State* state) {
             case 0xFB: {  // SHA256H [реализация]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
-                SHA256_CTX ctx;
-                SHA256_Init(&ctx);
-                SHA256_Update(&ctx, &state->q[rn][0], 16);
-                SHA256_Final((unsigned char*)&state->q[rd][0], &ctx);
+                EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+                unsigned int mdlen = 0;
+                EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
+                EVP_DigestUpdate(mdctx, &state->q[rn][0], 16);
+                EVP_DigestFinal_ex(mdctx, (unsigned char*)&state->q[rd][0], &mdlen);
+                EVP_MD_CTX_free(mdctx);
                 break;
             }
             case 0xFC: {  // SHA256H2 [реализация]
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
-                SHA256_CTX ctx;
-                SHA256_Init(&ctx);
-                SHA256_Update(&ctx, &state->q[rn][0], 16);
-                SHA256_Final((unsigned char*)&state->q[rd][0], &ctx);
+                EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+                unsigned int mdlen = 0;
+                EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
+                EVP_DigestUpdate(mdctx, &state->q[rn][0], 16);
+                EVP_DigestFinal_ex(mdctx, (unsigned char*)&state->q[rd][0], &mdlen);
+                EVP_MD_CTX_free(mdctx);
                 break;
             }
             case 0xFD: {  // SHA256SU0 [реализация]

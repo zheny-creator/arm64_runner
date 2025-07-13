@@ -1,18 +1,20 @@
 #include "wayland_basic.h"
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <fcntl.h>
-#include <unistd.h>
-#include <sys/stat.h>
 #include <errno.h>
 #include <wayland-client.h>
 #include <xdg-shell-client-protocol.h>
 #include <wayland-client-protocol.h>
-#include <stdint.h>
 
 static void xdg_wm_base_ping(void* data, struct xdg_wm_base* xdg_wm_base, uint32_t serial) {
+    (void)data; (void)xdg_wm_base; (void)serial;
     xdg_wm_base_pong(xdg_wm_base, serial);
 }
 
@@ -21,6 +23,7 @@ static const struct xdg_wm_base_listener xdg_wm_base_listener = {
 };
 
 static void shm_format(void* data, struct wl_shm* shm, uint32_t format) {
+    (void)data; (void)shm; (void)format;
     // Можно обработать поддерживаемые форматы, если нужно
 }
 
@@ -30,6 +33,7 @@ static const struct wl_shm_listener shm_listener = {
 
 // Callback для получения глобальных объектов
 static void registry_handler(void* data, struct wl_registry* registry, uint32_t id, const char* interface, uint32_t version) {
+    (void)data; (void)registry; (void)id; (void)interface; (void)version;
     WaylandContext* ctx = (WaylandContext*)data;
     if (strcmp(interface, "wl_compositor") == 0) {
         ctx->compositor = wl_registry_bind(registry, id, &wl_compositor_interface, 1);
@@ -52,6 +56,7 @@ static const struct wl_registry_listener registry_listener = {
 };
 
 static void toplevel_close(void* data, struct xdg_toplevel* toplevel) {
+    (void)data; (void)toplevel;
     WaylandContext* ctx = (WaylandContext*)data;
     ctx->running = 0;
 }
@@ -62,6 +67,7 @@ static const struct xdg_toplevel_listener toplevel_listener = {
 };
 
 static void xdg_surface_configure(void* data, struct xdg_surface* surface, uint32_t serial) {
+    (void)data; (void)surface; (void)serial;
     xdg_surface_ack_configure(surface, serial);
 }
 
