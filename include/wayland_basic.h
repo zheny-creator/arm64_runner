@@ -25,6 +25,8 @@ typedef struct WaylandContext {
     int running;
 } WaylandContext;
 
+// ВАЖНО: После использования обязательно вызывайте wayland_cleanup для предотвращения утечек ресурсов!
+// Все поля структуры WaylandContext должны быть инициализированы нулями перед первым использованием.
 // Инициализация Wayland-клиента
 int wayland_init(WaylandContext* ctx);
 // Завершение работы и очистка ресурсов

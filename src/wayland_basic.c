@@ -61,14 +61,28 @@ static void toplevel_close(void* data, struct xdg_toplevel* toplevel) {
     ctx->running = 0;
 }
 
+static void toplevel_configure(void* data, struct xdg_toplevel* toplevel, int32_t width, int32_t height, struct wl_array* states) {
+    (void)toplevel; (void)states;
+    WaylandContext* ctx = (WaylandContext*)data;
+    if (width > 0) ctx->width = width;
+    if (height > 0) ctx->height = height;
+}
+
 static const struct xdg_toplevel_listener toplevel_listener = {
+    .configure = toplevel_configure,
     .close = toplevel_close,
-    .configure = NULL,
 };
 
+// --- ДОБАВИТЬ вспомогательную структуру для передачи состояния configure ---
+typedef struct {
+    WaylandContext* ctx;
+    int* configured_ptr;
+} ConfigureContext;
+
 static void xdg_surface_configure(void* data, struct xdg_surface* surface, uint32_t serial) {
-    (void)data; (void)surface; (void)serial;
+    ConfigureContext* cctx = (ConfigureContext*)data;
     xdg_surface_ack_configure(surface, serial);
+    if (cctx && cctx->configured_ptr) *(cctx->configured_ptr) = 1;
 }
 
 static const struct xdg_surface_listener xdg_surface_listener = {
@@ -112,8 +126,8 @@ int wayland_init(WaylandContext* ctx) {
     ctx->registry = wl_display_get_registry(ctx->display);
     wl_registry_add_listener(ctx->registry, &registry_listener, ctx);
     wl_display_roundtrip(ctx->display);
-    if (!ctx->compositor) {
-        fprintf(stderr, "[Wayland] Не удалось получить wl_compositor!\n");
+    if (!ctx->compositor || !ctx->xdg_wm_base || !ctx->shm) {
+        fprintf(stderr, "[Wayland] Не удалось получить все необходимые объекты (compositor/xdg_wm_base/shm)!\n");
         wl_display_disconnect(ctx->display);
         return 1;
     }
@@ -128,28 +142,78 @@ int wayland_init(WaylandContext* ctx) {
 }
 
 void wayland_cleanup(WaylandContext* ctx) {
-    if (ctx->surface) wl_surface_destroy(ctx->surface);
-    if (ctx->compositor) wl_compositor_destroy(ctx->compositor);
-    if (ctx->registry) wl_registry_destroy(ctx->registry);
-    if (ctx->display) wl_display_disconnect(ctx->display);
+    if (ctx->buffer) {
+        wl_buffer_destroy(ctx->buffer);
+        ctx->buffer = NULL;
+    }
+    if (ctx->xdg_toplevel) {
+        xdg_toplevel_destroy(ctx->xdg_toplevel);
+        ctx->xdg_toplevel = NULL;
+    }
+    if (ctx->xdg_surface) {
+        xdg_surface_destroy(ctx->xdg_surface);
+        ctx->xdg_surface = NULL;
+    }
+    if (ctx->surface) {
+        wl_surface_destroy(ctx->surface);
+        ctx->surface = NULL;
+    }
+    if (ctx->compositor) {
+        wl_compositor_destroy(ctx->compositor);
+        ctx->compositor = NULL;
+    }
+    if (ctx->shm_data && ctx->shm_size > 0) {
+        munmap(ctx->shm_data, ctx->shm_size);
+        ctx->shm_data = NULL;
+        ctx->shm_size = 0;
+    }
+    if (ctx->shm_fd >= 0) {
+        close(ctx->shm_fd);
+        ctx->shm_fd = -1;
+    }
+    if (ctx->shm) {
+        wl_shm_destroy(ctx->shm);
+        ctx->shm = NULL;
+    }
+    if (ctx->registry) {
+        wl_registry_destroy(ctx->registry);
+        ctx->registry = NULL;
+    }
+    if (ctx->display) {
+        wl_display_disconnect(ctx->display);
+        ctx->display = NULL;
+    }
     printf("[Wayland] Очистка завершена.\n");
 }
 
 int wayland_show_window(WaylandContext* ctx, int width, int height, uint32_t color) {
     if (wayland_init(ctx) != 0) return 1;
-    if (!ctx->xdg_wm_base || !ctx->compositor || !ctx->shm) {
-        fprintf(stderr, "[Wayland] Не удалось получить все необходимые объекты!\n");
+    ctx->xdg_surface = xdg_wm_base_get_xdg_surface(ctx->xdg_wm_base, ctx->surface);
+    if (!ctx->xdg_surface) {
+        fprintf(stderr, "[Wayland] Не удалось создать xdg_surface!\n");
         wayland_cleanup(ctx);
         return 1;
     }
-    ctx->surface = wl_compositor_create_surface(ctx->compositor);
-    ctx->xdg_surface = xdg_wm_base_get_xdg_surface(ctx->xdg_wm_base, ctx->surface);
-    xdg_surface_add_listener(ctx->xdg_surface, &xdg_surface_listener, ctx);
+    int configured = 0;
+    ConfigureContext cctx = { .ctx = ctx, .configured_ptr = &configured };
+    xdg_surface_add_listener(ctx->xdg_surface, &xdg_surface_listener, &cctx);
     ctx->xdg_toplevel = xdg_surface_get_toplevel(ctx->xdg_surface);
+    if (!ctx->xdg_toplevel) {
+        fprintf(stderr, "[Wayland] Не удалось создать xdg_toplevel!\n");
+        wayland_cleanup(ctx);
+        return 1;
+    }
     xdg_toplevel_add_listener(ctx->xdg_toplevel, &toplevel_listener, ctx);
     wl_surface_commit(ctx->surface);
-    wl_display_roundtrip(ctx->display);
-    create_shm_buffer(ctx, width, height, color);
+    // Ждём configure
+    while (!configured) {
+        wl_display_dispatch(ctx->display);
+    }
+    if (!create_shm_buffer(ctx, width, height, color)) {
+        fprintf(stderr, "[Wayland] Не удалось создать shm-буфер!\n");
+        wayland_cleanup(ctx);
+        return 1;
+    }
     wl_surface_attach(ctx->surface, ctx->buffer, 0, 0);
     wl_surface_damage_buffer(ctx->surface, 0, 0, width, height);
     wl_surface_commit(ctx->surface);

@@ -81,6 +81,12 @@ void livepatch_cleanup(LivePatchSystem* system) {
                 if (debug_enabled) printf("[LIVEPATCH] Patch reverted: %s\n", system->patches[i].description);
             }
         }
+        // --- Освобождение памяти для INSERT/NEW_FUNC ---
+        if ((system->patches[i].patch_type == PATCH_INSERT || system->patches[i].patch_type == PATCH_NEW_FUNC) && system->patches[i].code) {
+            free(system->patches[i].code);
+            system->patches[i].code = NULL;
+            system->patches[i].code_size = 0;
+        }
     }
     pthread_mutex_unlock(&system->mutex);
     pthread_mutex_destroy(&system->mutex);
@@ -233,6 +239,13 @@ int livepatch_revert(LivePatchSystem* system, uint64_t target_addr) {
             
             system->patches[i].active = 0;
             
+            // --- Освобождение памяти для INSERT/NEW_FUNC ---
+            if ((system->patches[i].patch_type == PATCH_INSERT || system->patches[i].patch_type == PATCH_NEW_FUNC) && system->patches[i].code) {
+                free(system->patches[i].code);
+                system->patches[i].code = NULL;
+                system->patches[i].code_size = 0;
+            }
+
             if (debug_enabled) printf("[LIVEPATCH] Откачен патч: %s с адреса 0x%lX\n", 
                    system->patches[i].description, target_addr);
             
@@ -260,6 +273,13 @@ int livepatch_revert_all(LivePatchSystem* system) {
                 system->patches[i].original_instr;
             
             system->patches[i].active = 0;
+            
+            // --- Освобождение памяти для INSERT/NEW_FUNC ---
+            if ((system->patches[i].patch_type == PATCH_INSERT || system->patches[i].patch_type == PATCH_NEW_FUNC) && system->patches[i].code) {
+                free(system->patches[i].code);
+                system->patches[i].code = NULL;
+                system->patches[i].code_size = 0;
+            }
             reverted_count++;
         }
     }
