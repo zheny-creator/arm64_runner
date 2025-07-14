@@ -2173,23 +2173,31 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
             int real_fd = get_real_fd(state->x[0]);
             struct iovec* iov = (struct iovec*)(state->memory + (state->x[1] - state->base_addr));
             int buffer_valid = 1;
-            uint64_t iov_base = (uint64_t)iov->iov_base;
-            uint64_t iov_len = iov->iov_len;
-            if (iov_base < state->base_addr) {
-                buffer_valid = 0;
-            } else {
-                uint64_t offset = iov_base - state->base_addr;
-                if (offset >= state->mem_size) {
+            int iovcnt = state->x[2];
+            if (iovcnt <= 0 || iovcnt > 1024) buffer_valid = 0;
+            for (int i = 0; buffer_valid && i < iovcnt; ++i) {
+                uint64_t iov_base = (uint64_t)iov[i].iov_base;
+                uint64_t iov_len = iov[i].iov_len;
+                if (iov_base < state->base_addr) {
                     buffer_valid = 0;
-                } else if (offset > UINT64_MAX - iov_len) {
-                    buffer_valid = 0;
-                } else if (offset + iov_len > state->mem_size) {
-                    buffer_valid = 0;
+                } else {
+                    uint64_t offset = iov_base - state->base_addr;
+                    if (offset >= state->mem_size) {
+                        buffer_valid = 0;
+                    } else if (offset > UINT64_MAX - iov_len) {
+                        buffer_valid = 0;
+                    } else if (offset + iov_len > state->mem_size) {
+                        buffer_valid = 0;
+                    }
                 }
             }
             if (real_fd >= 0 && buffer_valid) {
-                ssize_t n = read(real_fd, (void*)(state->memory + (iov_base - state->base_addr)), iov_len);
-                if (n < 0) n = -errno;
+                ssize_t n = 0;
+                for (int i = 0; i < iovcnt; ++i) {
+                    ssize_t r = read(real_fd, (void*)(state->memory + ((uint64_t)iov[i].iov_base - state->base_addr)), iov[i].iov_len);
+                    if (r < 0) { n = -errno; break; }
+                    n += r;
+                }
                 state->x[0] = n;
             } else {
                 state->x[0] = buffer_valid ? -EBADF : -EFAULT;
@@ -2202,23 +2210,31 @@ void handle_syscall(Arm64State* state, uint16_t svc_num) {
             int real_fd = get_real_fd(state->x[0]);
             struct iovec* iov = (struct iovec*)(state->memory + (state->x[1] - state->base_addr));
             int buffer_valid = 1;
-            uint64_t iov_base = (uint64_t)iov->iov_base;
-            uint64_t iov_len = iov->iov_len;
-            if (iov_base < state->base_addr) {
-                buffer_valid = 0;
-            } else {
-                uint64_t offset = iov_base - state->base_addr;
-                if (offset >= state->mem_size) {
+            int iovcnt = state->x[2];
+            if (iovcnt <= 0 || iovcnt > 1024) buffer_valid = 0;
+            for (int i = 0; buffer_valid && i < iovcnt; ++i) {
+                uint64_t iov_base = (uint64_t)iov[i].iov_base;
+                uint64_t iov_len = iov[i].iov_len;
+                if (iov_base < state->base_addr) {
                     buffer_valid = 0;
-                } else if (offset > UINT64_MAX - iov_len) {
-                    buffer_valid = 0;
-                } else if (offset + iov_len > state->mem_size) {
-                    buffer_valid = 0;
+                } else {
+                    uint64_t offset = iov_base - state->base_addr;
+                    if (offset >= state->mem_size) {
+                        buffer_valid = 0;
+                    } else if (offset > UINT64_MAX - iov_len) {
+                        buffer_valid = 0;
+                    } else if (offset + iov_len > state->mem_size) {
+                        buffer_valid = 0;
+                    }
                 }
             }
             if (real_fd >= 0 && buffer_valid) {
-                ssize_t n = write(real_fd, (void*)(state->memory + (iov_base - state->base_addr)), iov_len);
-                if (n < 0) n = -errno;
+                ssize_t n = 0;
+                for (int i = 0; i < iovcnt; ++i) {
+                    ssize_t w = write(real_fd, (void*)(state->memory + ((uint64_t)iov[i].iov_base - state->base_addr)), iov[i].iov_len);
+                    if (w < 0) { n = -errno; break; }
+                    n += w;
+                }
                 state->x[0] = n;
             } else {
                 state->x[0] = buffer_valid ? -EBADF : -EFAULT;
@@ -2666,6 +2682,7 @@ void load_elf(Arm64State* state, const char* filename) {
     Elf64_Ehdr ehdr;
     if (fread(&ehdr, sizeof(ehdr), 1, file) != 1) {
         if (debug_enabled) fprintf(stderr, "Failed to read ELF header\n");
+        fclose(file);
         exit(1);
     }
     if (ehdr.e_ident[EI_MAG0] != ELFMAG0 || 
@@ -2673,67 +2690,101 @@ void load_elf(Arm64State* state, const char* filename) {
         ehdr.e_ident[EI_MAG2] != ELFMAG2 ||
         ehdr.e_ident[EI_MAG3] != ELFMAG3) {
         if (debug_enabled) fprintf(stderr, "Not an ELF file\n");
+        fclose(file);
         exit(1);
     }
     if (ehdr.e_machine != EM_AARCH64) {
         if (debug_enabled) fprintf(stderr, "Not an AArch64 ELF file\n");
+        fclose(file);
         exit(1);
     }
-    
     if (debug_enabled) printf("ELF: e_phoff=0x%lX, e_phnum=%d, e_phentsize=%d\n", 
            ehdr.e_phoff, ehdr.e_phnum, ehdr.e_phentsize);
     if (debug_enabled) printf("sizeof(Elf64_Phdr)=%zu\n", sizeof(Elf64_Phdr));
-    
     // Найти минимальный p_vaddr среди PT_LOAD и загрузить сегменты
     uint64_t min_addr = (uint64_t)-1;
+    int error = 0;
     fseek(file, ehdr.e_phoff, SEEK_SET);
     for (int i = 0; i < ehdr.e_phnum; i++) {
         Elf64_Phdr phdr;
         if (fread(&phdr, sizeof(phdr), 1, file) != 1) {
             if (debug_enabled) fprintf(stderr, "Failed to read program header %d\n", i);
-            exit(1);
+            error = 1; goto cleanup;
         }
-        if (debug_enabled) printf("PH %d: type=%u, vaddr=0x%lX, memsz=0x%lX, filesz=0x%lX, offset=0x%lX\n", 
-               i, phdr.p_type, phdr.p_vaddr, phdr.p_memsz, phdr.p_filesz, phdr.p_offset);
-        
         if (phdr.p_type == PT_LOAD) {
-            // Найти минимальный адрес для base_addr
             if (phdr.p_vaddr < min_addr) {
                 min_addr = phdr.p_vaddr;
             }
-            // Загрузить сегмент
+        }
+    }
+    if (min_addr == (uint64_t)-1) {
+        if (debug_enabled) fprintf(stderr, "No PT_LOAD segments found\n");
+        error = 1; goto cleanup;
+    }
+    // Проверка границ памяти
+    fseek(file, ehdr.e_phoff, SEEK_SET);
+    for (int i = 0; i < ehdr.e_phnum; i++) {
+        Elf64_Phdr phdr;
+        if (fread(&phdr, sizeof(phdr), 1, file) != 1) {
+            if (debug_enabled) fprintf(stderr, "Failed to read program header %d\n", i);
+            error = 1; goto cleanup;
+        }
+        if (phdr.p_type == PT_LOAD) {
+            uint64_t offset = phdr.p_vaddr - min_addr;
+            if (offset > state->mem_size || phdr.p_memsz > state->mem_size || offset + phdr.p_memsz > state->mem_size) {
+                if (debug_enabled) fprintf(stderr, "PT_LOAD segment out of memory bounds\n");
+                error = 1; goto cleanup;
+            }
+        }
+    }
+    // Загрузить сегменты
+    fseek(file, ehdr.e_phoff, SEEK_SET);
+    for (int i = 0; i < ehdr.e_phnum; i++) {
+        Elf64_Phdr phdr;
+        if (fread(&phdr, sizeof(phdr), 1, file) != 1) {
+            if (debug_enabled) fprintf(stderr, "Failed to read program header %d\n", i);
+            error = 1; goto cleanup;
+        }
+        if (phdr.p_type == PT_LOAD) {
             if (debug_enabled) printf("Loading PT_LOAD segment %d: vaddr=0x%lX, memsz=0x%lX, filesz=0x%lX, offset=0x%lX\n", 
                    i, phdr.p_vaddr, phdr.p_memsz, phdr.p_filesz, phdr.p_offset);
-            // Временно сохранить позицию в program headers
             long ph_pos = ftell(file);
-            // Загрузить данные сегмента, если есть что грузить
             if (phdr.p_filesz > 0) {
                 fseek(file, phdr.p_offset, SEEK_SET);
-                if (fread(state->memory + (phdr.p_vaddr - min_addr), phdr.p_filesz, 1, file) != 1) {
+                uint64_t offset = phdr.p_vaddr - min_addr;
+                if (offset + phdr.p_filesz > state->mem_size) {
+                    if (debug_enabled) fprintf(stderr, "PT_LOAD filesz out of memory bounds\n");
+                    error = 1; goto cleanup;
+                }
+                if (fread(state->memory + offset, phdr.p_filesz, 1, file) != 1) {
                     if (debug_enabled) fprintf(stderr, "Failed to load segment\n");
-                    exit(1);
+                    error = 1; goto cleanup;
                 }
                 if (debug_enabled) printf("Loaded %lu bytes at offset 0x%lX in memory\n", 
-                       phdr.p_filesz, phdr.p_vaddr - min_addr);
+                       phdr.p_filesz, offset);
             }
-            // Zero-fill остаток (или весь сегмент, если filesz==0)
             if (phdr.p_filesz < phdr.p_memsz) {
-                memset(state->memory + (phdr.p_vaddr - min_addr) + phdr.p_filesz, 
-                      0, phdr.p_memsz - phdr.p_filesz);
+                uint64_t offset = phdr.p_vaddr - min_addr;
+                if (offset + phdr.p_memsz > state->mem_size) {
+                    if (debug_enabled) fprintf(stderr, "PT_LOAD memsz out of memory bounds\n");
+                    error = 1; goto cleanup;
+                }
+                memset(state->memory + offset + phdr.p_filesz, 0, phdr.p_memsz - phdr.p_filesz);
                 if (debug_enabled) printf("Zeroed %lu bytes at offset 0x%lX\n", 
-                       phdr.p_memsz - phdr.p_filesz, 
-                       (phdr.p_vaddr - min_addr) + phdr.p_filesz);
+                       phdr.p_memsz - phdr.p_filesz, offset + phdr.p_filesz);
             }
-            // Вернуться к позиции в program headers
             fseek(file, ph_pos, SEEK_SET);
         }
     }
     state->base_addr = min_addr;
     if (debug_enabled) printf("base_addr = 0x%lX\n", state->base_addr);
-    // Сохраняем точку входа
     state->entry = ehdr.e_entry;
     if (debug_enabled) printf("entry = 0x%lX\n", state->entry);
     fclose(file);
+    return;
+cleanup:
+    fclose(file);
+    exit(1);
 }
 
 void dump_registers(Arm64State* state) {
@@ -2972,6 +3023,16 @@ int main(int argc, char** argv) {
     state->heap_end = state->entry + 0x100000; // запас 1МБ после entry (можно сделать точнее)
     // === Livepatch: инициализация ===
     LivePatchSystem* livepatch_system = livepatch_init(state->memory, state->mem_size, state->base_addr);
+    if (!livepatch_system) {
+        fprintf(stderr, "[Livepatch] Ошибка инициализации Livepatch!\n");
+        if (state->memory && state->mem_size > 0) {
+            memset(state->memory, 0, state->mem_size);
+            munmap(state->memory, state->mem_size);
+        }
+        memset(state, 0, sizeof(Arm64State));
+        free(state);
+        return 1;
+    }
     livepatch_set_system(livepatch_system);
     // === Livepatch: загрузка патчей из файла, если указан аргумент --patches <файл> ===
     for (int i = 2; i < argc - 1; ++i) {
@@ -2987,6 +3048,15 @@ int main(int argc, char** argv) {
         }
     }
     crc32_init(); // инициализация таблицы CRC32
+    // --- Sandbox для update_module ---
+    if (argc >= 2 && strcmp(argv[1], "--update") == 0) {
+        // Ограничение прав: сбросать права до nobody, если не root
+        if (geteuid() != 0) {
+            setuid(65534); // nobody
+            setgid(65534);
+        }
+        return run_update();
+    }
     // Запускаем интерпретатор
     interpret_arm64(state);
     // Выводим код завершения
@@ -3173,13 +3243,13 @@ int load_so_library(const char* filename) {
     // --- Определяем диапазон памяти для сегментов PT_LOAD ---
     uint64_t min_addr = (uint64_t)-1;
     uint64_t max_addr = 0;
+    int error = 0;
     fseek(file, ehdr.e_phoff, SEEK_SET);
     for (int i = 0; i < ehdr.e_phnum; i++) {
         Elf64_Phdr phdr;
         if (fread(&phdr, sizeof(phdr), 1, file) != 1) {
             fprintf(stderr, "[SO LOAD] Не удалось прочитать program header %d\n", i);
-            fclose(file);
-            return -1;
+            error = 1; goto cleanup;
         }
         if (phdr.p_type == PT_LOAD) {
             if (phdr.p_vaddr < min_addr) min_addr = phdr.p_vaddr;
@@ -3188,15 +3258,17 @@ int load_so_library(const char* filename) {
     }
     if (min_addr == (uint64_t)-1 || max_addr <= min_addr) {
         fprintf(stderr, "[SO LOAD] Нет PT_LOAD сегментов\n");
-        fclose(file);
-        return -1;
+        error = 1; goto cleanup;
     }
     size_t mem_size = max_addr - min_addr;
+    if (mem_size == 0 || mem_size > (1ULL << 30)) { // ограничение 1ГБ
+        fprintf(stderr, "[SO LOAD] Некорректный размер памяти для .so\n");
+        error = 1; goto cleanup;
+    }
     uint8_t* so_mem = (uint8_t*)malloc(mem_size);
     if (!so_mem) {
         fprintf(stderr, "[SO LOAD] Не удалось выделить память для .so\n");
-        fclose(file);
-        return -1;
+        error = 1; goto cleanup;
     }
     memset(so_mem, 0, mem_size); // zero-fill
     // --- Загружаем сегменты PT_LOAD ---
@@ -3205,24 +3277,18 @@ int load_so_library(const char* filename) {
         Elf64_Phdr phdr;
         if (fread(&phdr, sizeof(phdr), 1, file) != 1) {
             fprintf(stderr, "[SO LOAD] Не удалось прочитать program header %d (2)\n", i);
-            free(so_mem);
-            fclose(file);
-            return -1;
+            error = 1; goto cleanup_mem;
         }
         if (phdr.p_type == PT_LOAD && phdr.p_filesz > 0) {
             fseek(file, phdr.p_offset, SEEK_SET);
             size_t offset = phdr.p_vaddr - min_addr;
             if (offset + phdr.p_filesz > mem_size) {
                 fprintf(stderr, "[SO LOAD] PT_LOAD выходит за пределы выделенной памяти\n");
-                free(so_mem);
-                fclose(file);
-                return -1;
+                error = 1; goto cleanup_mem;
             }
             if (fread(so_mem + offset, phdr.p_filesz, 1, file) != 1) {
                 fprintf(stderr, "[SO LOAD] Не удалось загрузить сегмент\n");
-                free(so_mem);
-                fclose(file);
-                return -1;
+                error = 1; goto cleanup_mem;
             }
         }
     }
@@ -3233,19 +3299,16 @@ int load_so_library(const char* filename) {
     lib->mem_size = mem_size;
     lib->symbol_count = 0;
     lib->needed_count = 0;
-
     // --- Парсим секции .dynsym и .dynstr для построения таблицы символов ---
     fseek(file, ehdr.e_shoff, SEEK_SET);
     Elf64_Shdr* shdrs = malloc(ehdr.e_shnum * sizeof(Elf64_Shdr));
     if (!shdrs) {
         fprintf(stderr, "[SO LOAD] Не удалось выделить память для секций\n");
-        free(so_mem);
-        return -1;
+        error = 1; goto cleanup_mem;
     }
     if (fread(shdrs, sizeof(Elf64_Shdr), ehdr.e_shnum, file) != ehdr.e_shnum) {
         fprintf(stderr, "[SO LOAD] Не удалось прочитать секции\n");
-        free(so_mem); free(shdrs);
-        return -1;
+        error = 1; goto cleanup_shdrs;
     }
     char* shstrtab = NULL;
     if (ehdr.e_shstrndx != SHN_UNDEF) {
@@ -3287,6 +3350,7 @@ int load_so_library(const char* filename) {
         Elf64_Dyn* dyns = malloc(dynamic->sh_size);
         fseek(file, dynamic->sh_offset, SEEK_SET);
         fread(dyns, sizeof(Elf64_Dyn), nentries, file);
+        int max_dep_depth = 8; // ограничение глубины зависимостей
         for (int i = 0; i < nentries && lib->needed_count < 8; ++i) {
             if (dyns[i].d_tag == DT_NEEDED) {
                 const char* dep = ((char*)0);
@@ -3295,8 +3359,9 @@ int load_so_library(const char* filename) {
                     fseek(file, dynstr->sh_offset + dyns[i].d_un.d_val, SEEK_SET);
                     fread(lib->needed[lib->needed_count], 1, 255, file);
                     lib->needed[lib->needed_count][255] = 0;
-                    // Загружаем зависимость, если не загружена
-                    if (!is_so_loaded(lib->needed[lib->needed_count])) {
+                    // Защита от циклических зависимостей и глубины
+                    if (!is_so_loaded(lib->needed[lib->needed_count]) && max_dep_depth > 0) {
+                        max_dep_depth--;
                         load_so_library(lib->needed[lib->needed_count]);
                     }
                     lib->needed_count++;
@@ -3311,6 +3376,13 @@ int load_so_library(const char* filename) {
     printf("[SO LOAD] Загружена библиотека: %s, память: %zu байт, base=0x%lX, symbols: %d, needed: %d\n", filename, mem_size, (unsigned long)min_addr, lib->symbol_count, lib->needed_count);
     fclose(file);
     return loaded_libs_count - 1;
+cleanup_shdrs:
+    free(shdrs);
+cleanup_mem:
+    free(so_mem);
+cleanup:
+    fclose(file);
+    return -1;
 }
 
 // --- Поиск символа по имени среди всех загруженных библиотек ---
