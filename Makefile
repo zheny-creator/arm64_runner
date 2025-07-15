@@ -19,9 +19,9 @@ TARGETS = arm64_runner update_module module_jit
 
 # Объектные файлы
 LIVEPATCH_OBJS = src/livepatch.o
-RUNNER_OBJS = src/arm64_runner.o modules/livepatch.o modules/module_jit.o src/wayland_basic.o src/xdg-shell-client-protocol.o
+RUNNER_OBJS = src/arm64_runner.o modules/livepatch.o modules/module_jit.o src/wayland_basic.o src/xdg-shell-client-protocol.o modules/elf_loader.o modules/instruction_handler.o
 
-SRC = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c src/xdg-shell-client-protocol.c
+SRC = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c src/xdg-shell-client-protocol.c modules/elf_loader.c modules/instruction_handler.c
 SRC_NOUPDATE = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c src/xdg-shell-client-protocol.c
 BIN = arm64_runner
 
@@ -260,8 +260,8 @@ rc: increment_build
 	$(MAKE) RC=$(RC) MARKETING_MAJOR=$(MARKETING_MAJOR) MARKETING_MINOR=$(MARKETING_MINOR) BUILD_NUMBER=$(BUILD_NUMBER) update_module
 	$(MAKE) RC=$(RC) MARKETING_MAJOR=$(MARKETING_MAJOR) MARKETING_MINOR=$(MARKETING_MINOR) BUILD_NUMBER=$(BUILD_NUMBER) module_jit
 
-module_jit: modules/module_jit_main.cpp modules/module_jit.o include/module_jit.h modules/livepatch.o
-	g++ $(CXXFLAGS) -Iinclude modules/module_jit_main.cpp modules/module_jit.o modules/livepatch.o -o module_jit $(LDFLAGS) $(LDLIBS)
+module_jit: modules/module_jit_main.cpp modules/module_jit.o include/module_jit.h modules/livepatch.o modules/elf_loader.o modules/instruction_handler.o
+	g++ $(CXXFLAGS) -Iinclude modules/module_jit_main.cpp modules/module_jit.o modules/livepatch.o modules/elf_loader.o modules/instruction_handler.o -o module_jit $(LDFLAGS) $(LDLIBS)
 
 .PHONY: all clean install test demo create-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 
 
@@ -292,3 +292,9 @@ dependencies:
 	else \
 	    echo "[ERROR] Не удалось определить дистрибутив (нет /etc/os-release). Установите зависимости вручную."; \
 	fi 
+
+modules/elf_loader.o: modules/elf_loader.c include/elf_loader.h
+	$(CC) $(CFLAGS) -Iinclude -c modules/elf_loader.c -o modules/elf_loader.o
+
+modules/instruction_handler.o: modules/instruction_handler.c include/instruction_handler.h
+	$(CC) $(CFLAGS) -Iinclude -c modules/instruction_handler.c -o modules/instruction_handler.o 

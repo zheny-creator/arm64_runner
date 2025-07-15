@@ -2,7 +2,7 @@
 #include <stdio.h>
 int debug_enabled = 0;
 int main() {
-    int res = jit_compile_simple_add(2, 3);
-    printf("jit_compile_simple_add(2, 3) = %d\n", res);
+    // Здесь можно добавить тесты новой архитектуры JIT
+    printf("module_jit_main: JIT module loaded.\n");
     return 0;
 } 
