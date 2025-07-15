@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include "elf_loader.h"
 #include "instruction_handler.h"
+#include <vector>
+#include <cstring>
 
 static asmjit::JitRuntime rt;
 
@@ -52,8 +54,32 @@ void jit_register_instruction_handler(InstructionHandler* handler) {
 // Упрощённая реализация: ищет символ, декодирует инструкции, вызывает обработчики
 int jit_execute(const char* symbol, int argc, uint64_t* argv) {
     if (!elf_loaded) { printf("[JIT] No ELF loaded\n"); return -1; }
-    // Здесь должен быть поиск секции/символа, проход по коду, вызов обработчиков
-    printf("[JIT] Executing symbol: %s (stub)\n", symbol);
-    // Пример: просто возвращаем 0
-    return 0;
+    // MVP: эмулируем одну инструкцию add (байткод: 0x01, a, b)
+    uint8_t code[3] = {0x01, 42, 58};
+    AddDecoded decoded{};
+    InstructionHandler* handler = find_instruction_handler("add");
+    if (!handler || !handler->decode || !handler->generate) {
+        printf("[JIT] No handler for 'add'\n");
+        return -1;
+    }
+    if (!handler->decode(code, 3, &decoded)) {
+        printf("[JIT] Failed to decode 'add'\n");
+        return -1;
+    }
+    using namespace asmjit;
+    CodeHolder codeHolder;
+    codeHolder.init(Environment::host());
+    handler->generate(&decoded, &codeHolder);
+    void* fn = nullptr;
+    Error err = rt.add(&fn, &codeHolder);
+    if (err) {
+        printf("[JIT] asmjit error: %d\n", err);
+        return -1;
+    }
+    // Тип функции: int func()
+    typedef int (*JitFunc)();
+    int result = ((JitFunc)fn)();
+    printf("[JIT] Executed JIT function, result = %d\n", result);
+    rt.release(fn);
+    return result;
 } 

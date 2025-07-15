@@ -17,6 +17,7 @@ arm_runner/
 *.bin
 *.exe
 *.log 
+*.txt
 
 remove_case_dups.sh
 syscall_libs.txt

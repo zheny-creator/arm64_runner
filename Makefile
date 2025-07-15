@@ -21,7 +21,7 @@ TARGETS = arm64_runner update_module module_jit
 LIVEPATCH_OBJS = src/livepatch.o
 RUNNER_OBJS = src/arm64_runner.o modules/livepatch.o modules/module_jit.o src/wayland_basic.o src/xdg-shell-client-protocol.o modules/elf_loader.o modules/instruction_handler.o
 
-SRC = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c src/xdg-shell-client-protocol.c modules/elf_loader.c modules/instruction_handler.c
+SRC = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c src/xdg-shell-client-protocol.c
 SRC_NOUPDATE = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c src/xdg-shell-client-protocol.c
 BIN = arm64_runner
 
@@ -64,13 +64,7 @@ modules/livepatch.o: modules/livepatch.c include/livepatch.h
 	-c modules/livepatch.c -o modules/livepatch.o
 
 modules/module_jit.o: modules/module_jit.cpp include/module_jit.h
-	g++ $(CXXFLAGS) -Iinclude \
-	-DMARKETING_MAJOR=$(MARKETING_MAJOR) \
-	-DMARKETING_MINOR=$(MARKETING_MINOR) \
-	-DBUILD_NUMBER=$(BUILD_NUMBER) \
-	-DRC_NUMBER=$(RC) \
-	-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )) \
-	-c modules/module_jit.cpp -o modules/module_jit.o
+	g++ -std=c++17 -O2 -g -Iinclude -c modules/module_jit.cpp -o modules/module_jit.o
 
 src/wayland_basic.o: src/wayland_basic.c
 	$(CC) $(CFLAGS) -Iinclude \
@@ -111,7 +105,7 @@ modules/module_jit.o: modules/module_jit.cpp include/module_jit.h
 	g++ -std=c++17 -O2 -g -Iinclude -c modules/module_jit.cpp -o modules/module_jit.o
 
 arm64_runner: $(RUNNER_OBJS)
-	g++ $(RUNNER_OBJS) -o arm64_runner $(LDFLAGS) $(LDLIBS) -lwayland-client -lm -lcjson -ldl -lstdc++
+	g++ $(RUNNER_OBJS) -o arm64_runner $(LDFLAGS) $(LDLIBS) -lwayland-client -lm -lcjson -ldl -lstdc++ -lasmjit
 
 # Очистка
 clean:
@@ -293,8 +287,8 @@ dependencies:
 	    echo "[ERROR] Не удалось определить дистрибутив (нет /etc/os-release). Установите зависимости вручную."; \
 	fi 
 
-modules/elf_loader.o: modules/elf_loader.c include/elf_loader.h
-	$(CC) $(CFLAGS) -Iinclude -c modules/elf_loader.c -o modules/elf_loader.o
+modules/elf_loader.o: modules/elf_loader.cpp include/elf_loader.h
+	g++ -std=c++17 -O2 -g -Iinclude -c modules/elf_loader.cpp -o modules/elf_loader.o
 
-modules/instruction_handler.o: modules/instruction_handler.c include/instruction_handler.h
-	$(CC) $(CFLAGS) -Iinclude -c modules/instruction_handler.c -o modules/instruction_handler.o 
+modules/instruction_handler.o: modules/instruction_handler.cpp include/instruction_handler.h
+	g++ -std=c++17 -O2 -g -Iinclude -c modules/instruction_handler.cpp -o modules/instruction_handler.o 

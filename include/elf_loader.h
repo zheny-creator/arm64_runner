@@ -9,7 +9,10 @@ extern "C" {
 #include <stddef.h>
 
 // Структура для хранения информации об ELF-файле
-typedef struct {
+typedef struct ElfLoaderImpl ElfLoaderImpl;
+
+typedef struct ElfFile {
+    ElfLoaderImpl* impl;
     int fd;
     void* mapped;
     size_t size;

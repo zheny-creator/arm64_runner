@@ -13,6 +13,9 @@ typedef int (*InstructionDecodeFn)(const uint8_t* code, size_t code_size, void* 
 // Тип функции для генерации кода через asmjit (или аналог)
 typedef int (*InstructionGenFn)(const void* decoded, void* codegen_ctx);
 
+// === Структуры для декодированных инструкций ===
+typedef struct { uint64_t a, b; } AddDecoded;
+
 // Структура обработчика инструкции
 typedef struct InstructionHandler {
     const char* name;
