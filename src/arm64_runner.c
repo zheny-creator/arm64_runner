@@ -2917,9 +2917,34 @@ int main(int argc, char** argv) {
     }
     if (jit_requested) {
         printf("[JIT] Экспериментальный режим JIT активирован!\n");
-        int res = jit_compile_simple_add(2, 3);
-        printf("[JIT] jit_compile_simple_add(2, 3) = %d\n", res);
-        return 0;
+        // Ожидается: --jit <elf-файл> [symbol]
+        const char* elf_file = NULL;
+        const char* symbol = NULL;
+        for (int i = 1; i < argc; ++i) {
+            if (strcmp(argv[i], "--jit") == 0 && i+1 < argc) {
+                elf_file = argv[i+1];
+                if (i+2 < argc && argv[i+2][0] != '-') {
+                    symbol = argv[i+2];
+                }
+                break;
+            }
+        }
+        if (!elf_file) {
+            fprintf(stderr, "[JIT] Usage: %s --jit <elf-file> [symbol]\n", argv[0]);
+            return 1;
+        }
+        if (jit_load_elf(elf_file) != 0) {
+            fprintf(stderr, "[JIT] Failed to load ELF: %s\n", elf_file);
+            return 1;
+        }
+        if (!symbol) {
+            // По умолчанию — точка входа ELF
+            printf("[JIT] No symbol specified, using entry point.\n");
+            symbol = "entry";
+        }
+        int res = jit_execute(symbol, 0, NULL);
+        printf("[JIT] jit_execute(%s) = %d\n", symbol, res);
+        return res;
     }
     if (argc >= 2 && (strcmp(argv[1], "--about") == 0 || strcmp(argv[1], "--version") == 0)) {
         print_version_info();
