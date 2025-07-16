@@ -5,7 +5,6 @@
 #include <cstring>
 #include <cstdio>
 #include <asmjit/asmjit.h>
-#include <asmjit/arm.h>
 #include <asmjit/x86.h>
 
 struct HandlerEntry {
