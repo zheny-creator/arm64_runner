@@ -57,6 +57,7 @@ void interpret_arm64(Arm64State* state);
 void dump_registers(Arm64State* state);
 void raise_segfault(Arm64State* state, uint64_t addr, size_t size, const char* op);
 void katze_is_baka();
+static int print_latest_github_changelog();
 static int print_latest_github_rc_changelog();
 // --- Вспомогательная структура для эмуляции процессов ---
 typedef struct EmuProcess {
@@ -2703,13 +2704,12 @@ void load_elf(Arm64State* state, const char* filename) {
     if (debug_enabled) printf("sizeof(Elf64_Phdr)=%zu\n", sizeof(Elf64_Phdr));
     // Найти минимальный p_vaddr среди PT_LOAD и загрузить сегменты
     uint64_t min_addr = (uint64_t)-1;
-    int error = 0;
     fseek(file, ehdr.e_phoff, SEEK_SET);
     for (int i = 0; i < ehdr.e_phnum; i++) {
         Elf64_Phdr phdr;
         if (fread(&phdr, sizeof(phdr), 1, file) != 1) {
             if (debug_enabled) fprintf(stderr, "Failed to read program header %d\n", i);
-            error = 1; goto cleanup;
+            goto cleanup;
         }
         if (phdr.p_type == PT_LOAD) {
             if (phdr.p_vaddr < min_addr) {
@@ -2719,7 +2719,7 @@ void load_elf(Arm64State* state, const char* filename) {
     }
     if (min_addr == (uint64_t)-1) {
         if (debug_enabled) fprintf(stderr, "No PT_LOAD segments found\n");
-        error = 1; goto cleanup;
+        goto cleanup;
     }
     // Проверка границ памяти
     fseek(file, ehdr.e_phoff, SEEK_SET);
@@ -2727,13 +2727,13 @@ void load_elf(Arm64State* state, const char* filename) {
         Elf64_Phdr phdr;
         if (fread(&phdr, sizeof(phdr), 1, file) != 1) {
             if (debug_enabled) fprintf(stderr, "Failed to read program header %d\n", i);
-            error = 1; goto cleanup;
+            goto cleanup;
         }
         if (phdr.p_type == PT_LOAD) {
             uint64_t offset = phdr.p_vaddr - min_addr;
             if (offset > state->mem_size || phdr.p_memsz > state->mem_size || offset + phdr.p_memsz > state->mem_size) {
                 if (debug_enabled) fprintf(stderr, "PT_LOAD segment out of memory bounds\n");
-                error = 1; goto cleanup;
+                goto cleanup;
             }
         }
     }
@@ -2743,7 +2743,7 @@ void load_elf(Arm64State* state, const char* filename) {
         Elf64_Phdr phdr;
         if (fread(&phdr, sizeof(phdr), 1, file) != 1) {
             if (debug_enabled) fprintf(stderr, "Failed to read program header %d\n", i);
-            error = 1; goto cleanup;
+            goto cleanup;
         }
         if (phdr.p_type == PT_LOAD) {
             if (debug_enabled) printf("Loading PT_LOAD segment %d: vaddr=0x%lX, memsz=0x%lX, filesz=0x%lX, offset=0x%lX\n", 
@@ -2754,11 +2754,11 @@ void load_elf(Arm64State* state, const char* filename) {
                 uint64_t offset = phdr.p_vaddr - min_addr;
                 if (offset + phdr.p_filesz > state->mem_size) {
                     if (debug_enabled) fprintf(stderr, "PT_LOAD filesz out of memory bounds\n");
-                    error = 1; goto cleanup;
+                    goto cleanup;
                 }
                 if (fread(state->memory + offset, phdr.p_filesz, 1, file) != 1) {
                     if (debug_enabled) fprintf(stderr, "Failed to load segment\n");
-                    error = 1; goto cleanup;
+                    goto cleanup;
                 }
                 if (debug_enabled) printf("Loaded %lu bytes at offset 0x%lX in memory\n", 
                        phdr.p_filesz, offset);
@@ -2767,7 +2767,7 @@ void load_elf(Arm64State* state, const char* filename) {
                 uint64_t offset = phdr.p_vaddr - min_addr;
                 if (offset + phdr.p_memsz > state->mem_size) {
                     if (debug_enabled) fprintf(stderr, "PT_LOAD memsz out of memory bounds\n");
-                    error = 1; goto cleanup;
+                    goto cleanup;
                 }
                 memset(state->memory + offset + phdr.p_filesz, 0, phdr.p_memsz - phdr.p_filesz);
                 if (debug_enabled) printf("Zeroed %lu bytes at offset 0x%lX\n", 
@@ -2800,7 +2800,6 @@ void dump_registers(Arm64State* state) {
         printf("BASE= 0x%016lX\n", state->base_addr);
     }
 }
-static int get_latest_release_tag(char* tag, size_t tag_size);
 
 static int print_latest_github_changelog() {
     // Скачиваем JSON с описанием последнего релиза
@@ -2817,30 +2816,26 @@ static int print_latest_github_changelog() {
         printf("Ошибка открытия временного файла релиза.\n");
         return 1;
     }
-    char line[2048];
-    int in_body = 0;
+    char line[4096];
     printf("\n===== CHANGELOG (GitHub Release) =====\n\n");
     while (fgets(line, sizeof(line), f)) {
         char* body_ptr = strstr(line, "\"body\":");
         if (body_ptr) {
-            // Нашли начало поля body
             char* start = strchr(body_ptr, '"');
-            if (start) start = strchr(start+1, '"'); // до второго кавычки
+            if (start) start = strchr(start+1, '"');
             if (start) start++;
             char* end = strrchr(line, '"');
             if (end && end > start) *end = 0;
             if (start) printf("%s\n", start);
-            in_body = 1;
-            break; // body всегда в одной строке (API)
+            fclose(f);
+            unlink("/tmp/arm64runner_release.json");
+            return 0;
         }
     }
     fclose(f);
     unlink("/tmp/arm64runner_release.json");
-    if (!in_body) {
-        printf("Changelog не найден в описании релиза!\n");
-        return 1;
-    }
-    return 0;
+    printf("Changelog не найден в описании релиза!\n");
+    return 1;
 }
 
 // Проверка архитектуры ELF-файла
@@ -3077,8 +3072,14 @@ int main(int argc, char** argv) {
     if (argc >= 2 && strcmp(argv[1], "--update") == 0) {
         // Ограничение прав: сбросать права до nobody, если не root
         if (geteuid() != 0) {
-            setuid(65534); // nobody
-            setgid(65534);
+            if (setuid(65534) != 0) {
+                perror("setuid failed");
+                return 1;
+            }
+            if (setgid(65534) != 0) {
+                perror("setgid failed");
+                return 1;
+            }
         }
         return run_update();
     }
@@ -3105,28 +3106,6 @@ int main(int argc, char** argv) {
 // Прототип пасхальной функции
 void katze_is_baka() {
     printf("Это пасхалка.. А что еще надо?\n");
-}
-
-// --- Вспомогательная функция для получения тега последнего релиза ---
-static int get_latest_release_tag(char* tag, size_t tag_size) {
-    // Аналогично update_module.c
-    const char* api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest";
-    char curl_cmd[512];
-    snprintf(curl_cmd, sizeof(curl_cmd), "curl -s '%s' | grep 'tag_name' | cut -d \"\" -f4 > /tmp/latest_tag.txt", api_url);
-    int result = system(curl_cmd);
-    if (result != 0) return 1;
-    FILE* f = fopen("/tmp/latest_tag.txt", "r");
-    if (!f) return 1;
-    if (!fgets(tag, tag_size, f)) {
-        fclose(f);
-        return 1;
-    }
-    fclose(f);
-    unlink("/tmp/latest_tag.txt");
-    size_t len = strlen(tag);
-    if (len > 0 && tag[len-1] == '\n') tag[len-1] = 0;
-    if (strlen(tag) == 0) return 1;
-    return 0;
 }
 
 // CRC32 реализация (табличная)
@@ -3268,13 +3247,12 @@ int load_so_library(const char* filename) {
     // --- Определяем диапазон памяти для сегментов PT_LOAD ---
     uint64_t min_addr = (uint64_t)-1;
     uint64_t max_addr = 0;
-    int error = 0;
     fseek(file, ehdr.e_phoff, SEEK_SET);
     for (int i = 0; i < ehdr.e_phnum; i++) {
         Elf64_Phdr phdr;
         if (fread(&phdr, sizeof(phdr), 1, file) != 1) {
             fprintf(stderr, "[SO LOAD] Не удалось прочитать program header %d\n", i);
-            error = 1; goto cleanup;
+            goto cleanup;
         }
         if (phdr.p_type == PT_LOAD) {
             if (phdr.p_vaddr < min_addr) min_addr = phdr.p_vaddr;
@@ -3283,17 +3261,17 @@ int load_so_library(const char* filename) {
     }
     if (min_addr == (uint64_t)-1 || max_addr <= min_addr) {
         fprintf(stderr, "[SO LOAD] Нет PT_LOAD сегментов\n");
-        error = 1; goto cleanup;
+        goto cleanup;
     }
     size_t mem_size = max_addr - min_addr;
     if (mem_size == 0 || mem_size > (1ULL << 30)) { // ограничение 1ГБ
         fprintf(stderr, "[SO LOAD] Некорректный размер памяти для .so\n");
-        error = 1; goto cleanup;
+        goto cleanup;
     }
     uint8_t* so_mem = (uint8_t*)malloc(mem_size);
     if (!so_mem) {
         fprintf(stderr, "[SO LOAD] Не удалось выделить память для .so\n");
-        error = 1; goto cleanup;
+        goto cleanup;
     }
     memset(so_mem, 0, mem_size); // zero-fill
     // --- Загружаем сегменты PT_LOAD ---
@@ -3302,18 +3280,18 @@ int load_so_library(const char* filename) {
         Elf64_Phdr phdr;
         if (fread(&phdr, sizeof(phdr), 1, file) != 1) {
             fprintf(stderr, "[SO LOAD] Не удалось прочитать program header %d (2)\n", i);
-            error = 1; goto cleanup_mem;
+            goto cleanup_mem;
         }
         if (phdr.p_type == PT_LOAD && phdr.p_filesz > 0) {
             fseek(file, phdr.p_offset, SEEK_SET);
             size_t offset = phdr.p_vaddr - min_addr;
             if (offset + phdr.p_filesz > mem_size) {
                 fprintf(stderr, "[SO LOAD] PT_LOAD выходит за пределы выделенной памяти\n");
-                error = 1; goto cleanup_mem;
+                goto cleanup_mem;
             }
             if (fread(so_mem + offset, phdr.p_filesz, 1, file) != 1) {
                 fprintf(stderr, "[SO LOAD] Не удалось загрузить сегмент\n");
-                error = 1; goto cleanup_mem;
+                goto cleanup_mem;
             }
         }
     }
@@ -3329,18 +3307,18 @@ int load_so_library(const char* filename) {
     Elf64_Shdr* shdrs = malloc(ehdr.e_shnum * sizeof(Elf64_Shdr));
     if (!shdrs) {
         fprintf(stderr, "[SO LOAD] Не удалось выделить память для секций\n");
-        error = 1; goto cleanup_mem;
+        goto cleanup_mem;
     }
     if (fread(shdrs, sizeof(Elf64_Shdr), ehdr.e_shnum, file) != ehdr.e_shnum) {
         fprintf(stderr, "[SO LOAD] Не удалось прочитать секции\n");
-        error = 1; goto cleanup_shdrs;
+        goto cleanup_shdrs;
     }
     char* shstrtab = NULL;
     if (ehdr.e_shstrndx != SHN_UNDEF) {
         Elf64_Shdr* shstr = &shdrs[ehdr.e_shstrndx];
         shstrtab = malloc(shstr->sh_size);
         fseek(file, shstr->sh_offset, SEEK_SET);
-        fread(shstrtab, 1, shstr->sh_size, file);
+        (void)fread(shstrtab, 1, shstr->sh_size, file);
     }
     Elf64_Shdr* dynsym = NULL;
     Elf64_Shdr* dynstr = NULL;
@@ -3354,11 +3332,11 @@ int load_so_library(const char* filename) {
     if (dynsym && dynstr) {
         char* dynstrtab = malloc(dynstr->sh_size);
         fseek(file, dynstr->sh_offset, SEEK_SET);
-        fread(dynstrtab, 1, dynstr->sh_size, file);
+        (void)fread(dynstrtab, 1, dynstr->sh_size, file);
         int nsyms = dynsym->sh_size / sizeof(Elf64_Sym);
         Elf64_Sym* syms = malloc(dynsym->sh_size);
         fseek(file, dynsym->sh_offset, SEEK_SET);
-        fread(syms, sizeof(Elf64_Sym), nsyms, file);
+        (void)fread(syms, sizeof(Elf64_Sym), nsyms, file);
         for (int i = 0; i < nsyms && lib->symbol_count < 1024; ++i) {
             if (syms[i].st_name == 0) continue;
             if (ELF64_ST_TYPE(syms[i].st_info) != STT_FUNC && ELF64_ST_TYPE(syms[i].st_info) != STT_OBJECT) continue;
@@ -3374,23 +3352,16 @@ int load_so_library(const char* filename) {
         int nentries = dynamic->sh_size / sizeof(Elf64_Dyn);
         Elf64_Dyn* dyns = malloc(dynamic->sh_size);
         fseek(file, dynamic->sh_offset, SEEK_SET);
-        fread(dyns, sizeof(Elf64_Dyn), nentries, file);
+        (void)fread(dyns, sizeof(Elf64_Dyn), nentries, file);
         int max_dep_depth = 8; // ограничение глубины зависимостей
         for (int i = 0; i < nentries && lib->needed_count < 8; ++i) {
             if (dyns[i].d_tag == DT_NEEDED) {
-                const char* dep = ((char*)0);
-                if (dyns[i].d_un.d_val < dynstr->sh_size) {
-                    dep = (char*)(dyns[i].d_un.d_val);
-                    fseek(file, dynstr->sh_offset + dyns[i].d_un.d_val, SEEK_SET);
-                    fread(lib->needed[lib->needed_count], 1, 255, file);
-                    lib->needed[lib->needed_count][255] = 0;
-                    // Защита от циклических зависимостей и глубины
-                    if (!is_so_loaded(lib->needed[lib->needed_count]) && max_dep_depth > 0) {
-                        max_dep_depth--;
-                        load_so_library(lib->needed[lib->needed_count]);
-                    }
-                    lib->needed_count++;
+                // Защита от циклических зависимостей и глубины
+                if (!is_so_loaded(lib->needed[lib->needed_count]) && max_dep_depth > 0) {
+                    max_dep_depth--;
+                    load_so_library(lib->needed[lib->needed_count]);
                 }
+                lib->needed_count++;
             }
         }
         free(dyns);

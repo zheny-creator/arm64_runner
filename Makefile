@@ -36,13 +36,7 @@ RC_NUMBER ?= 0
 all: release
 
 # Компиляция ARM64 Runner
-$(BIN): $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS) $(LDLIBS) -lwayland-client -lm -lcjson \
-		-DMARKETING_MAJOR=$(MARKETING_MAJOR) \
-		-DMARKETING_MINOR=$(MARKETING_MINOR) \
-		-DBUILD_NUMBER=$(BUILD_NUMBER) \
-		-DRC_NUMBER=0 \
-		-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 ))
+# Удалено правило $(BIN): $(SRC)
 
 # Явные правила для объектников
 src/arm64_runner.o: src/arm64_runner.c

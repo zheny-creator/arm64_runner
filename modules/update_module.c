@@ -531,6 +531,8 @@ static void find_real_root(char* dir, size_t dir_size) {
             break;
         }
     }
+    // После strncpy и snprintf явно обнуляю последний байт
+    dir[dir_size-1] = '\0';
 }
 
 int update_extract(const UpdateParams* params) {
