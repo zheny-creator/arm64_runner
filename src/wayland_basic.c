@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "wayland_basic.h"
 #include <sys/types.h>
 #include <sys/stat.h>

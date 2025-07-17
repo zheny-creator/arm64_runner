@@ -510,12 +510,22 @@ static void find_real_root(char* dir, size_t dir_size) {
         while ((entry = readdir(d)) != NULL) {
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
             char path[512];
-            snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+            if (strlen(dir) + 1 + strlen(entry->d_name) >= sizeof(path)) {
+                snprintf(path, sizeof(path), "%s/%.*s", dir, (int)(sizeof(path)-strlen(dir)-2), entry->d_name);
+                path[sizeof(path)-1] = '\0';
+            } else {
+                snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+            }
             struct stat st;
             if (lstat(path, &st) != 0) continue;
             if (S_ISDIR(st.st_mode)) {
                 count_dirs++;
-                strncpy(only_dir, path, sizeof(only_dir)-1);
+                if (strlen(path) >= sizeof(only_dir)) {
+                    strncpy(only_dir, path, sizeof(only_dir)-1);
+                    only_dir[sizeof(only_dir)-1] = '\0';
+                } else {
+                    strcpy(only_dir, path);
+                }
             } else if (S_ISREG(st.st_mode)) {
                 count_files++;
             }
@@ -524,8 +534,12 @@ static void find_real_root(char* dir, size_t dir_size) {
         if (count_files > 0) break; // есть хотя бы один файл — стоп
         if (count_dirs == 1 && only_dir[0]) {
             // только одна папка и нет файлов — спускаемся
-            strncpy(dir, only_dir, dir_size-1);
-            dir[dir_size-1] = 0;
+            if (strlen(only_dir) >= dir_size) {
+                strncpy(dir, only_dir, dir_size-1);
+                dir[dir_size-1] = '\0';
+            } else {
+                strcpy(dir, only_dir);
+            }
         } else {
             // либо несколько папок, либо ничего — стоп
             break;
