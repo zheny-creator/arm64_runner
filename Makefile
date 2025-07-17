@@ -101,9 +101,6 @@ update_module: modules/update_module.c
 		-DRC_NUMBER=0 \
 		-DVERSION_CODE=$$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 ))
 
-modules/module_jit.o: modules/module_jit.cpp include/module_jit.h
-	g++ -std=c++17 -O2 -g -Iinclude -c modules/module_jit.cpp -o modules/module_jit.o
-
 arm64_runner: $(RUNNER_OBJS)
 	g++ $(RUNNER_OBJS) -o arm64_runner $(LDFLAGS) $(LDLIBS) -lwayland-client -lm -lcjson -ldl -lstdc++ -lasmjit
 

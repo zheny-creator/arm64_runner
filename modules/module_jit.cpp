@@ -68,7 +68,7 @@ int jit_execute(const char* symbol, int argc, uint64_t* argv) {
     }
     using namespace asmjit;
     CodeHolder codeHolder;
-    codeHolder.init(Environment::host());
+    codeHolder.init(rt.environment());
     handler->generate(&decoded, &codeHolder);
     void* fn = nullptr;
     Error err = rt.add(&fn, &codeHolder);
