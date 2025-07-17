@@ -190,8 +190,12 @@ deb-noupdate: all-noupdate
 	@dpkg-deb --build deb_dist
 	@echo "Готово: deb_dist.deb"
 
+# Формируем строку версии и имя архива
+MARKETING_VERSION := $(MARKETING_MAJOR).$(MARKETING_MINOR)
+ARCHIVE_NAME = arm64-runner-$(MARKETING_VERSION)-build$(BUILD_NUMBER).tar.gz
+
 # Автоматизация архивации исходников для RPM
-SOURCE_ARCHIVE = arm64-runner-1.0.tar.gz
+SOURCE_ARCHIVE = $(ARCHIVE_NAME)
 SOURCE_DIR = .
 
 $(SOURCE_ARCHIVE): arm64_runner update_module livepatch module_jit
