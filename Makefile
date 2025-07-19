@@ -19,7 +19,7 @@ TARGETS = arm64_runner update_module module_jit
 
 # Объектные файлы
 LIVEPATCH_OBJS = src/livepatch.o
-RUNNER_OBJS = src/arm64_runner.o modules/livepatch.o modules/module_jit.o src/wayland_basic.o src/xdg-shell-client-protocol.o modules/elf_loader.o modules/instruction_handler.o
+RUNNER_OBJS = src/arm64_runner.o modules/livepatch.o modules/module_jit.o src/wayland_basic.o src/xdg-shell-client-protocol.o modules/elf_loader.o modules/instruction_handler.o modules/syscall_proxy.o
 
 SRC = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c src/xdg-shell-client-protocol.c
 SRC_NOUPDATE = src/arm64_runner.c modules/livepatch.c src/wayland_basic.c src/xdg-shell-client-protocol.c
@@ -27,7 +27,7 @@ BIN = arm64_runner
 
 # Параметры версии по умолчанию (можно переопределять через окружение)
 MARKETING_MAJOR ?= 1
-MARKETING_MINOR ?= 2
+MARKETING_MINOR ?= 3
 VERSION_CODE := $(shell echo $$(( $(MARKETING_MAJOR)*100000 + $(MARKETING_MINOR)*100 )))
 BUILD_NUMBER ?= 0
 RC_NUMBER ?= 0
@@ -249,8 +249,8 @@ rc: increment_build
 	$(MAKE) RC=$(RC) MARKETING_MAJOR=$(MARKETING_MAJOR) MARKETING_MINOR=$(MARKETING_MINOR) BUILD_NUMBER=$(BUILD_NUMBER) update_module
 	$(MAKE) RC=$(RC) MARKETING_MAJOR=$(MARKETING_MAJOR) MARKETING_MINOR=$(MARKETING_MINOR) BUILD_NUMBER=$(BUILD_NUMBER) module_jit
 
-module_jit: modules/module_jit_main.cpp modules/module_jit.o include/module_jit.h modules/livepatch.o modules/elf_loader.o modules/instruction_handler.o
-	g++ $(CXXFLAGS) -Iinclude modules/module_jit_main.cpp modules/module_jit.o modules/livepatch.o modules/elf_loader.o modules/instruction_handler.o -o module_jit $(LDFLAGS) $(LDLIBS)
+module_jit: modules/module_jit_main.cpp modules/module_jit.o include/module_jit.h modules/livepatch.o modules/elf_loader.o modules/instruction_handler.o modules/syscall_proxy.o
+	g++ $(CXXFLAGS) -Iinclude modules/module_jit_main.cpp modules/module_jit.o modules/livepatch.o modules/elf_loader.o modules/instruction_handler.o modules/syscall_proxy.o -o module_jit $(LDFLAGS) $(LDLIBS)
 
 .PHONY: all clean install test demo create-patches create-livepatch-security load-patches memory-demo check-deps build help deb deb-noupdate rpm rpm-noupdate 
 
@@ -287,3 +287,6 @@ modules/elf_loader.o: modules/elf_loader.cpp include/elf_loader.h
 
 modules/instruction_handler.o: modules/instruction_handler.cpp include/instruction_handler.h
 	g++ -std=c++17 -O2 -g -Iinclude -c modules/instruction_handler.cpp -o modules/instruction_handler.o 
+
+modules/syscall_proxy.o: modules/syscall_proxy.cpp modules/syscall_proxy.h
+	g++ -std=c++17 -O2 -g -Iinclude -c modules/syscall_proxy.cpp -o modules/syscall_proxy.o 

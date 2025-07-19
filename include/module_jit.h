@@ -6,7 +6,9 @@ extern "C" {
 #endif
 
 #include "elf_loader.h"
+extern ElfFile g_elf;
 #include "instruction_handler.h"
+extern int debug_enabled;
 
 // Загрузить ELF-файл для JIT
 int jit_load_elf(const char* filename);
