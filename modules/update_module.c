@@ -52,6 +52,7 @@ static int file_exists(const char *filename) {
 int update_debug = 0;
 // Глобальный флаг для RC-режима
 int update_rc_mode = 0;
+int update_force = 0;
 
 // Получение тега последнего релиза с GitHub
 static int get_latest_release_tag(char* tag, size_t tag_size) {
@@ -606,19 +607,21 @@ int run_update() {
     int cur_major = MARKETING_MAJOR, cur_minor = MARKETING_MINOR, cur_rc = RC_NUMBER;
     int latest_major = 0, latest_minor = 0, latest_rc = 0;
     parse_version_tag(latest_tag, &latest_major, &latest_minor, &latest_rc);
-    if (cur_rc == 0 && latest_rc == 0) {
-        // Обычные релизы: обновлять только если версия пользователя ниже
-        if (cur_major > latest_major || (cur_major == latest_major && cur_minor >= latest_minor)) {
-            printf("[Update] Already up to date (v%d.%d).\n", cur_major, cur_minor);
-            return 0;
+    if (!update_force) {
+        if (cur_rc == 0 && latest_rc == 0) {
+            // Обычные релизы: обновлять только если версия пользователя ниже
+            if (cur_major > latest_major || (cur_major == latest_major && cur_minor >= latest_minor)) {
+                printf("[Update] Already up to date (v%d.%d).\n", cur_major, cur_minor);
+                return 0;
+            }
+        } else if (cur_rc > 0 && latest_rc > 0) {
+            // RC-версии: обновлять только если версия пользователя ниже
+            if (cur_major > latest_major || (cur_major == latest_major && cur_minor > latest_minor) || (cur_major == latest_major && cur_minor == latest_minor && cur_rc >= latest_rc)) {
+                printf("[Update] Already up to date (v%d.%d-rc%d).\n", cur_major, cur_minor, cur_rc);
+                return 0;
+            }
+            // Если версия пользователя ниже — обновляем
         }
-    } else if (cur_rc > 0 && latest_rc > 0) {
-        // RC-версии: обновлять только если версия пользователя ниже
-        if (cur_major > latest_major || (cur_major == latest_major && cur_minor > latest_minor) || (cur_major == latest_major && cur_minor == latest_minor && cur_rc >= latest_rc)) {
-            printf("[Update] Already up to date (v%d.%d-rc%d).\n", cur_major, cur_minor, cur_rc);
-            return 0;
-        }
-        // Если версия пользователя ниже — обновляем
     }
     // --- Получение архива только по расширению .tar.gz из assets ---
     // update_get_url уже ищет .tar.gz через find_tar_gz_asset и заполняет params.filename/params.url
@@ -648,6 +651,7 @@ void print_update_help() {
     printf("  --debug, -d     Включить вывод отладочной информации\n");
     printf("  --rc, -r        Установить pre-release (RC) версию вместо стабильной\n");
     printf("  --prerelease    То же, что и --rc\n");
+    printf("  --force         Принудительно обновить даже если версия совпадает\n");
     printf("  --help, -h      Показать эту справку\n");
     printf("\n");
     printf("Пример:\n");
@@ -674,13 +678,24 @@ int main(int argc, char **argv) {
     }
     // --- Обработка опций ---
     int opt;
-    while ((opt = getopt(argc, argv, "drh")) != -1) {
+    static struct option long_options[] = {
+        {"debug", no_argument, 0, 'd'},
+        {"rc", no_argument, 0, 'r'},
+        {"prerelease", no_argument, 0, 'r'},
+        {"force", no_argument, 0, 'f'},
+        {"help", no_argument, 0, 'h'},
+        {0, 0, 0, 0}
+    };
+    while ((opt = getopt_long(argc, argv, "drhf", long_options, NULL)) != -1) {
         switch (opt) {
             case 'd':
                 update_debug = 1;
                 break;
             case 'r':
                 update_rc_mode = 1;
+                break;
+            case 'f':
+                update_force = 1;
                 break;
             case 'h':
                 print_update_help();

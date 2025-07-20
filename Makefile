@@ -15,7 +15,7 @@ LDFLAGS = -lpthread -lssl -lcrypto -lwayland-client -lm -lcjson -lcurl -lasmjit
 LDLIBS += -lcurl -lasmjit
 
 # Основные цели
-TARGETS = arm64_runner update_module module_jit
+TARGETS = arm64_runner update_module
 
 # Объектные файлы
 LIVEPATCH_OBJS = src/livepatch.o
@@ -122,19 +122,15 @@ test:
 
 # Демонстрация
 demo:
-	./livepatch_example demo
 
 # Создание файла с патчами
 create-patches:
-	./livepatch_example create
 
 # Загрузка патчей
 load-patches:
-	./livepatch_example load
 
 # Демонстрация памяти
 memory-demo:
-	./livepatch_example memory
 
 # Проверка зависимостей
 check-deps:
@@ -160,7 +156,6 @@ help:
 
 # Создание патчей безопасности
 create-livepatch-security:
-	./livepatch_security_demo create
 
 deb: all
 	@echo "Создание структуры deb-пакета..."
