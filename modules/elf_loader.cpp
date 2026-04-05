@@ -51,6 +51,7 @@ public:
     uint64_t get_entry() const { return entry_point; }
     uint64_t get_base_addr() const { return base_addr; }
     void* get_section(const char* name, size_t* out_size) {
+        (void)name;
         // TODO: Реализовать поиск секции по имени
         if (out_size) *out_size = 0;
         return nullptr;

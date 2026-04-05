@@ -493,7 +493,9 @@ static int copy_dir_safe(const char* src, const char* dst) {
             mypid);
         if (fork() == 0) {
             // В дочернем процессе
-            (void)system(cmd);
+            if (system(cmd) < 0) {
+                fprintf(stderr, "[Update][ERROR] system() failed\n");
+            }
             exit(0);
         }
     }
@@ -510,7 +512,7 @@ static void find_real_root(char* dir, size_t dir_size) {
         char only_dir[512] = {0};
         while ((entry = readdir(d)) != NULL) {
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
-            char path[512];
+            char path[1024];
             if (strlen(dir) + 1 + strlen(entry->d_name) >= sizeof(path)) {
                 snprintf(path, sizeof(path), "%s/%.*s", dir, (int)(sizeof(path)-strlen(dir)-2), entry->d_name);
                 path[sizeof(path)-1] = '\0';

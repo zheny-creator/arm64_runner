@@ -3316,7 +3316,10 @@ int load_so_library(const char* filename) {
         Elf64_Shdr* shstr = &shdrs[ehdr.e_shstrndx];
         shstrtab = malloc(shstr->sh_size);
         fseek(file, shstr->sh_offset, SEEK_SET);
-        (void)fread(shstrtab, 1, shstr->sh_size, file);
+        if (fread(shstrtab, 1, shstr->sh_size, file) != shstr->sh_size) {
+            fprintf(stderr, "[SO LOAD] Не удалось прочитать shstrtab\n");
+            goto cleanup_mem;
+        }
     }
     Elf64_Shdr* dynsym = NULL;
     Elf64_Shdr* dynstr = NULL;
@@ -3330,11 +3333,20 @@ int load_so_library(const char* filename) {
     if (dynsym && dynstr) {
         char* dynstrtab = malloc(dynstr->sh_size);
         fseek(file, dynstr->sh_offset, SEEK_SET);
-        (void)fread(dynstrtab, 1, dynstr->sh_size, file);
+        if (fread(dynstrtab, 1, dynstr->sh_size, file) != dynstr->sh_size) {
+            fprintf(stderr, "[SO LOAD] Не удалось прочитать dynstr\n");
+            free(dynstrtab);
+            goto cleanup_mem;
+        }
         int nsyms = dynsym->sh_size / sizeof(Elf64_Sym);
         Elf64_Sym* syms = malloc(dynsym->sh_size);
         fseek(file, dynsym->sh_offset, SEEK_SET);
-        (void)fread(syms, sizeof(Elf64_Sym), nsyms, file);
+        if (fread(syms, sizeof(Elf64_Sym), nsyms, file) != (size_t)nsyms) {
+            fprintf(stderr, "[SO LOAD] Не удалось прочитать dynsym\n");
+            free(dynstrtab);
+            free(syms);
+            goto cleanup_mem;
+        }
         for (int i = 0; i < nsyms && lib->symbol_count < 1024; ++i) {
             if (syms[i].st_name == 0) continue;
             if (ELF64_ST_TYPE(syms[i].st_info) != STT_FUNC && ELF64_ST_TYPE(syms[i].st_info) != STT_OBJECT) continue;
@@ -3350,7 +3362,11 @@ int load_so_library(const char* filename) {
         int nentries = dynamic->sh_size / sizeof(Elf64_Dyn);
         Elf64_Dyn* dyns = malloc(dynamic->sh_size);
         fseek(file, dynamic->sh_offset, SEEK_SET);
-        (void)fread(dyns, sizeof(Elf64_Dyn), nentries, file);
+        if (fread(dyns, sizeof(Elf64_Dyn), nentries, file) != (size_t)nentries) {
+            fprintf(stderr, "[SO LOAD] Не удалось прочитать .dynamic\n");
+            free(dyns);
+            goto cleanup_mem;
+        }
         int max_dep_depth = 8; // ограничение глубины зависимостей
         for (int i = 0; i < nentries && lib->needed_count < 8; ++i) {
             if (dyns[i].d_tag == DT_NEEDED) {

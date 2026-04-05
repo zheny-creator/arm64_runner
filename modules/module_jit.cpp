@@ -72,7 +72,7 @@ DecodedInstr decode_arm64(uint32_t opcode, uint64_t pc) {
     DecodedInstr d{};
     d.pc = pc;
     // MOVZ Xn, #imm, LSL #shift (hw) 64-bit
-    if ((opcode & 0x7f800000) == 0xd2800000) { // MOVZ Xn, #imm, LSL #(hw*16)
+    if ((opcode & 0x7f800000) == 0x52800000 && (opcode & 0x80000000)) { // MOVZ Xn, #imm, LSL #(hw*16)
         d.type = IT_MOVZ;
         d.dst = (opcode >> 0) & 0x1f;
         uint32_t imm16 = (opcode >> 5) & 0xffff;
@@ -180,6 +180,7 @@ int execute_decoded(const DecodedInstr& d, asmjit::CodeHolder& code, Arm64Contex
 }
 
 int jit_execute(const char* symbol, int argc, uint64_t* argv) {
+    (void)symbol;
     if (!elf_loaded) { if (debug_enabled) printf("[JIT] No ELF loaded\n"); return -1; }
     uint64_t entry = elf_get_entry(&g_elf);
     uint64_t base_addr = elf_get_base_addr(&g_elf);

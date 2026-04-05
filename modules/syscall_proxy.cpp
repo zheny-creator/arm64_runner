@@ -319,7 +319,7 @@ extern "C" long host_syscall_proxy(long number, long arg1, long arg2, long arg3,
     // write: fd, buf, count
     if (x86_64_num == 1) {
         void* real_buf = (void*)arg2;
-        if (g_elf.emu_mem && arg2 >= g_elf.base_addr && (arg2 + arg3) <= (g_elf.base_addr + g_elf.emu_mem_size)) {
+        if (g_elf.emu_mem && (uint64_t)arg2 >= g_elf.base_addr && ((uint64_t)arg2 + (uint64_t)arg3) <= (g_elf.base_addr + g_elf.emu_mem_size)) {
             real_buf = (uint8_t*)g_elf.emu_mem + (arg2 - g_elf.base_addr);
         }
         if (debug_enabled) {
