@@ -8,6 +8,7 @@ arm_runner/
 # Игнорировать тестовые бинарники
 /tests/hello_wayland
 /tests/hello_x86
+/tests/test_syscalls
 
 # Игнорировать временные и кэш-файлы
 *.o
@@ -16,12 +17,22 @@ arm_runner/
 *.out
 *.bin
 *.exe
-*.log 
+*.log
 *.txt
 *.tbl
 
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Temp files
+/tmp/test_proxy
+tmp_update_unpack/
+
 remove_case_dups.sh
 syscall_libs.txt
-arm64_runner* 
+arm64_runner*
 
 examples/ 
