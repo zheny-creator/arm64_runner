@@ -26,6 +26,7 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <capstone/capstone.h>
 #include "livepatch.h"
 #include "update_module.h"
 #include "wayland_basic.h"
@@ -99,6 +100,28 @@ struct Arm64State {
 int trace_enabled = 0;
 // Global variable for detailed output
 int debug_enabled = 0;
+
+// Capstone handle for instruction decoding
+static csh cs_handle = 0;
+
+static void capstone_init(void) {
+    if (cs_handle) return;
+    if (cs_open(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN, &cs_handle) != CS_ERR_OK) {
+        fprintf(stderr, "[Capstone] Failed to initialize\n");
+    }
+}
+
+static void capstone_disasm(uint64_t pc, uint32_t instr) {
+    if (!cs_handle) return;
+    cs_insn* insn = NULL;
+    size_t count = cs_disasm(cs_handle, (uint8_t*)&instr, 4, pc, 1, &insn);
+    if (count > 0) {
+        printf("  %s %s\n", insn[0].mnemonic, insn[0].op_str);
+        cs_free(insn, count);
+    } else {
+        printf("  (unknown: 0x%08X)\n", instr);
+    }
+}
 
 // Maximum number of file descriptors
 #define MAX_FDS 64
@@ -266,7 +289,10 @@ void interpret_arm64(Arm64State* state) {
         // Remove premature ASCII protection
         state->pc += 4;  // ARM64 instructions are always 4 bytes
         if (trace_enabled) {
-            if (debug_enabled) printf("PC=0x%lX INSTR=0x%08X OPCODE=0x%02X\n", state->pc - 4, instr, (instr >> 26) & 0x3F);
+            if (debug_enabled) {
+                printf("PC=0x%lX INSTR=0x%08X ", state->pc - 4, instr);
+                capstone_disasm(state->pc - 4, instr);
+            }
         }
         uint8_t opcode = (instr >> 26) & 0x3F;  // Use bits 26-31 to determine instruction type
         // printf("[DEBUG] PC=0x%lX, instr=0x%08X, opcode=0x%02X\n", state->pc, instr, opcode);
@@ -3015,6 +3041,8 @@ int main(int argc, char** argv) {
             debug_enabled = 1;
         }
     }
+    // Инициализация Capstone для дизассемблирования
+    capstone_init();
     if (argc >= 2 && strcmp(argv[1], "--wayland-test") == 0) {
         WaylandContext ctx = {0};
         if (wayland_init(&ctx) == 0) {
@@ -3089,6 +3117,11 @@ int main(int argc, char** argv) {
     uint64_t exit_code = state->exit_code;
     // === Livepatch: очистка ===
     livepatch_cleanup(livepatch_get_system());
+    // Capstone cleanup
+    if (cs_handle) {
+        cs_close(&cs_handle);
+        cs_handle = 0;
+    }
     // Безопасное освобождение памяти
     if (state->memory && state->mem_size > 0) {
         if (debug_enabled) {

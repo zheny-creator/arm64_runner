@@ -1,4 +1,5 @@
 #include <asmjit/asmjit.h>
+#include <capstone/capstone.h>
 #include "module_jit.h"
 #include "../include/version.h"
 #include "../include/livepatch.h"
@@ -12,6 +13,18 @@
 #include <cstdint>
 #include <functional>
 #include <array>
+
+// Capstone handle (initialized once)
+static csh cs_handle = 0;
+
+static void jit_capstone_init() {
+    if (cs_handle) return;
+    if (cs_open(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN, &cs_handle) != CS_ERR_OK) {
+        fprintf(stderr, "[JIT][Capstone] Failed to initialize\n");
+        return;
+    }
+    cs_option(cs_handle, CS_OPT_DETAIL, CS_OPT_ON);
+}
 
 struct Arm64Context {
     std::array<uint64_t, 31> x{}; // x0-x30
@@ -71,32 +84,93 @@ struct DecodedInstr {
 DecodedInstr decode_arm64(uint32_t opcode, uint64_t pc) {
     DecodedInstr d{};
     d.pc = pc;
-    // MOVZ Xn, #imm, LSL #shift (hw) 64-bit
-    if ((opcode & 0x7f800000) == 0x52800000 && (opcode & 0x80000000)) { // MOVZ Xn, #imm, LSL #(hw*16)
+    jit_capstone_init();
+    if (cs_handle) {
+        cs_insn* insn = NULL;
+        size_t count = cs_disasm(cs_handle, (uint8_t*)&opcode, 4, pc, 1, &insn);
+        if (count > 0) {
+            if (debug_enabled) {
+                printf("[JIT][Capstone] %s %s\n", insn[0].mnemonic, insn[0].op_str);
+            }
+            cs_arm64_op* ops = NULL;
+            int op_count = 0;
+            if (insn[0].detail) {
+                ops = insn[0].detail->arm64.operands;
+                op_count = insn[0].detail->arm64.op_count;
+            }
+            switch (insn[0].id) {
+                case ARM64_INS_MOVZ:
+                    d.type = IT_MOVZ;
+                    if (ops && op_count > 0 && ops[0].type == ARM64_OP_REG)
+                        d.dst = ops[0].reg - ARM64_REG_X0;
+                    if (ops && op_count > 1 && ops[1].type == ARM64_OP_IMM)
+                        d.imm = ops[1].imm;
+                    break;
+                case ARM64_INS_ADD:
+                    d.type = IT_ADD;
+                    if (ops && op_count > 0 && ops[0].type == ARM64_OP_REG)
+                        d.dst = ops[0].reg - ARM64_REG_X0;
+                    if (ops && op_count > 1 && ops[1].type == ARM64_OP_REG)
+                        d.src = ops[1].reg - ARM64_REG_X0;
+                    if (ops && op_count > 2 && ops[2].type == ARM64_OP_IMM)
+                        d.imm = ops[2].imm;
+                    break;
+                case ARM64_INS_ADR:
+                case ARM64_INS_ADRP:
+                    d.type = IT_ADR;
+                    if (ops && op_count > 0 && ops[0].type == ARM64_OP_REG)
+                        d.dst = ops[0].reg - ARM64_REG_X0;
+                    if (ops && op_count > 1 && ops[1].type == ARM64_OP_IMM)
+                        d.imm = ops[1].imm;
+                    break;
+                case ARM64_INS_NOP:
+                    d.type = IT_NOP;
+                    break;
+                case ARM64_INS_RET:
+                    d.type = IT_RET;
+                    break;
+                case ARM64_INS_B:
+                    d.type = IT_B;
+                    if (ops && op_count > 0 && ops[0].type == ARM64_OP_IMM)
+                        d.imm = ops[0].imm;
+                    break;
+                case ARM64_INS_SVC:
+                    d.type = IT_SVC;
+                    if (ops && op_count > 0 && ops[0].type == ARM64_OP_IMM)
+                        d.imm = ops[0].imm;
+                    break;
+                default:
+                    d.type = IT_UNKNOWN;
+                    break;
+            }
+            cs_free(insn, count);
+            if (d.type != IT_UNKNOWN) return d;
+        }
+    }
+    // Fallback: manual decoding if Capstone fails
+    if ((opcode & 0x7f800000) == 0x52800000 && (opcode & 0x80000000)) {
         d.type = IT_MOVZ;
         d.dst = (opcode >> 0) & 0x1f;
         uint32_t imm16 = (opcode >> 5) & 0xffff;
         uint32_t hw = (opcode >> 21) & 0x3;
         d.imm = imm16 << (hw * 16);
-    // MOVZ Wn, #imm, LSL #shift (hw) 32-bit
-    } else if ((opcode & 0x7f800000) == 0x52800000) { // MOVZ Wn, #imm, LSL #(hw*16)
+    } else if ((opcode & 0x7f800000) == 0x52800000) {
         d.type = IT_MOVZ;
         d.dst = (opcode >> 0) & 0x1f;
         uint32_t imm16 = (opcode >> 5) & 0xffff;
         uint32_t hw = (opcode >> 21) & 0x3;
         d.imm = imm16 << (hw * 16);
-    } else if ((opcode & 0xffc00000) == 0x91000000) { // ADD Xd, Xn, #imm12
+    } else if ((opcode & 0xffc00000) == 0x91000000) {
         d.type = IT_ADD;
         d.dst = (opcode >> 0) & 0x1f;
         d.src = (opcode >> 5) & 0x1f;
         d.imm = (opcode >> 10) & 0xfff;
-    } else if ((opcode & 0x9f000000) == 0x10000000) { // ADR
+    } else if ((opcode & 0x9f000000) == 0x10000000) {
         d.type = IT_ADR;
         d.dst = opcode & 0x1f;
         uint32_t immlo = (opcode >> 29) & 0x3;
         uint32_t immhi = (opcode >> 5) & 0x7ffff;
         int32_t imm = ((immhi << 2) | immlo);
-        // sign-extend 21 bits
         if (imm & (1 << 20)) imm |= ~((1 << 21) - 1);
         d.imm = imm;
     } else if (opcode == 0xd503201f) {
@@ -106,11 +180,9 @@ DecodedInstr decode_arm64(uint32_t opcode, uint64_t pc) {
     } else if ((opcode & 0xFC000000) == 0x14000000) {
         d.type = IT_B;
         int32_t imm26 = (opcode & 0x03FFFFFF);
-        if (imm26 & (1 << 25)) imm26 |= ~((1 << 26) - 1); // sign-extend 26 bits
+        if (imm26 & (1 << 25)) imm26 |= ~((1 << 26) - 1);
         d.imm = imm26 << 2;
-    } else if ((opcode & 0xFF) == 0x80) {
-        d.type = IT_SVC;
-    } else if ((opcode & 0xFFE0001F) == 0xD4000001) { // SVC #imm
+    } else if ((opcode & 0xFFE0001F) == 0xD4000001) {
         d.type = IT_SVC;
         d.imm = (opcode >> 5) & 0xFFFF;
     } else {

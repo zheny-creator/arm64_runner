@@ -11,7 +11,7 @@ CFLAGS   = -Wall -Wextra -std=c99 -O2 -g -Iinclude
 CXXFLAGS = -Wall -Wextra -std=c++17 -O2 -g -Iinclude
 
 # --- Библиотеки (LDLIBS, не LDFLAGS) ---
-LDLIBS = -lpthread -lssl -lcrypto -lwayland-client -lm -lcjson -lcurl -lasmjit -ldl -lstdc++
+LDLIBS = -lpthread -lssl -lcrypto -lwayland-client -lm -lcjson -lcurl -lasmjit -ldl -lstdc++ -lcapstone
 
 # --- Параметры версии ---
 MARKETING_MAJOR ?= 1
@@ -205,7 +205,7 @@ dependencies:
 	    if echo "$$ID" | grep -Eq 'ubuntu|debian'; then \
 	        echo "[INFO] Ubuntu/Debian detected"; \
 	        sudo apt update && \
-	        sudo apt install -y build-essential gcc g++ make libssl-dev libwayland-dev libcjson-dev libcurl4-openssl-dev libasmjit-dev pkg-config wayland-protocols curl tar gzip dpkg-dev; \
+	        sudo apt install -y build-essential gcc g++ make libssl-dev libwayland-dev libcjson-dev libcurl4-openssl-dev libasmjit-dev libcapstone-dev pkg-config wayland-protocols curl tar gzip dpkg-dev; \
 	    elif echo "$$ID" | grep -Eq 'fedora|rhel|centos'; then \
 	        echo "[INFO] Fedora/RHEL/CentOS detected"; \
 	        sudo dnf install -y gcc gcc-c++ make openssl-devel wayland-devel cjson-devel libcurl-devel asmjit-devel pkgconf-pkg-config wayland-protocols-devel curl tar gzip rpm-build meson; \
