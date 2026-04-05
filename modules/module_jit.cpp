@@ -73,7 +73,7 @@ void jit_register_instruction_handler(InstructionHandler* handler) {
     register_instruction_handler(handler);
 }
 
-enum InstrType { IT_MOVZ, IT_ADD, IT_ADR, IT_NOP, IT_RET, IT_B, IT_SVC, IT_UNKNOWN };
+enum InstrType { IT_MOVZ, IT_ADD, IT_ADR, IT_NOP, IT_RET, IT_B, IT_SVC, IT_MOV_REG, IT_MOVN, IT_UNKNOWN };
 struct DecodedInstr {
     InstrType type;
     uint8_t dst = 0, src = 0;
@@ -139,6 +139,22 @@ DecodedInstr decode_arm64(uint32_t opcode, uint64_t pc) {
                     if (ops && op_count > 0 && ops[0].type == ARM64_OP_IMM)
                         d.imm = ops[0].imm;
                     break;
+                case ARM64_INS_MOVN:
+                    d.type = IT_MOVN;
+                    if (ops && op_count > 0 && ops[0].type == ARM64_OP_REG)
+                        d.dst = ops[0].reg - ARM64_REG_X0;
+                    if (ops && op_count > 1 && ops[1].type == ARM64_OP_IMM)
+                        d.imm = ops[1].imm;
+                    break;
+                case ARM64_INS_ORR:
+                    // MOV Xd, Xm = ORR Xd, XZR, Xm
+                    if (ops && op_count >= 2 && ops[1].type == ARM64_OP_REG && ops[1].reg == ARM64_REG_XZR) {
+                        d.type = IT_MOV_REG;
+                        if (ops[0].type == ARM64_OP_REG)
+                            d.dst = ops[0].reg - ARM64_REG_X0;
+                        d.src = ops[2].reg - ARM64_REG_X0;
+                    }
+                    break;
                 default:
                     d.type = IT_UNKNOWN;
                     break;
@@ -185,6 +201,21 @@ DecodedInstr decode_arm64(uint32_t opcode, uint64_t pc) {
     } else if ((opcode & 0xFFE0001F) == 0xD4000001) {
         d.type = IT_SVC;
         d.imm = (opcode >> 5) & 0xFFFF;
+    } else if ((opcode & 0x7f800000) == 0x12800000 && (opcode & 0x80000000)) {
+        // MOVN Xd, #imm
+        d.type = IT_MOVN;
+        d.dst = (opcode >> 0) & 0x1f;
+        uint32_t imm16 = (opcode >> 5) & 0xffff;
+        uint32_t hw = (opcode >> 21) & 0x3;
+        d.imm = ~(imm16 << (hw * 16));
+    } else if ((opcode & 0x7fe0fc00) == 0x2a000000 && (opcode & 0x80000000)) {
+        // ORR Xd, Xn, Xm  (n=31 means MOV Xd, Xm)
+        uint8_t rn = (opcode >> 5) & 0x1f;
+        if (rn == 31) {
+            d.type = IT_MOV_REG;
+            d.dst = (opcode >> 0) & 0x1f;
+            d.src = (opcode >> 16) & 0x1f;
+        }
     } else {
         d.type = IT_UNKNOWN;
     }
@@ -210,7 +241,8 @@ int execute_decoded(const DecodedInstr& d, asmjit::CodeHolder& code, Arm64Contex
         }
         case IT_ADR: {
             x86::Assembler a(&code);
-            a.mov(x86::rax, d.pc + d.imm);
+            // Capstone уже даёт абсолютный адрес, не нужно добавлять PC
+            a.mov(x86::rax, d.imm);
             a.ret();
             break;
         }
@@ -246,6 +278,18 @@ int execute_decoded(const DecodedInstr& d, asmjit::CodeHolder& code, Arm64Contex
             a.ret();
             break;
         }
+        case IT_MOVN: {
+            x86::Assembler a(&code);
+            a.mov(x86::rax, ~(uint64_t)d.imm);
+            a.ret();
+            break;
+        }
+        case IT_MOV_REG: {
+            x86::Assembler a(&code);
+            a.mov(x86::rax, ctx.x[d.src]);
+            a.ret();
+            break;
+        }
         default: break;
     }
     return result;
@@ -253,13 +297,14 @@ int execute_decoded(const DecodedInstr& d, asmjit::CodeHolder& code, Arm64Contex
 
 int jit_execute(const char* symbol, int argc, uint64_t* argv) {
     (void)symbol;
-    if (!elf_loaded) { if (debug_enabled) printf("[JIT] No ELF loaded\n"); return -1; }
+    if (!elf_loaded) { printf("[JIT] No ELF loaded\n"); return -1; }
     uint64_t entry = elf_get_entry(&g_elf);
     uint64_t base_addr = elf_get_base_addr(&g_elf);
+    printf("[JIT] Entry: 0x%lx, base: 0x%lx, emu_mem: %p, emu_mem_size: 0x%zx\n", entry, base_addr, g_elf.emu_mem, g_elf.emu_mem_size);
     Arm64Context ctx;
     ctx.pc = entry;
     for (int i = 0; i < argc && i < 6; ++i) ctx.x[i] = argv[i];
-    for (int step = 0; step < 16; ++step) {
+    for (int step = 0; step < 100; ++step) {
         uint8_t instr[4] = {0};
         uint64_t offset = ctx.pc - base_addr;
         if (offset + 4 > g_elf.emu_mem_size && g_elf.emu_mem) {
@@ -282,7 +327,7 @@ int jit_execute(const char* symbol, int argc, uint64_t* argv) {
         asmjit::CodeHolder codeHolder;
         codeHolder.init(rt.environment());
         int result = execute_decoded(d, codeHolder, ctx);
-        if (d.type == IT_MOVZ) {
+        if (d.type == IT_MOVZ || d.type == IT_MOVN || d.type == IT_MOV_REG) {
             handled = 1;
         } else if (d.type == IT_SVC) {
             handled = 1;
@@ -304,6 +349,8 @@ int jit_execute(const char* symbol, int argc, uint64_t* argv) {
         // Обновляем регистр назначения
         switch (d.type) {
             case IT_MOVZ:
+            case IT_MOVN:
+            case IT_MOV_REG:
             case IT_ADR:
                 ctx.x[d.dst] = res;
                 break;

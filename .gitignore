@@ -20,6 +20,9 @@ arm_runner/
 *.log
 *.txt
 *.tbl
+*.md
+*.py
+*.s
 
 # IDE
 .vscode/
