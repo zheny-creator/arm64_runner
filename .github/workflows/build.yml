@@ -1,0 +1,54 @@
+name: Build ARM64 Runner
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc g++ make \
+          libssl-dev libwayland-dev libcjson-dev libcurl4-openssl-dev \
+          libasmjit-dev libcapstone-dev pkg-config wayland-protocols \
+          curl tar gzip
+
+    - name: Build all targets
+      run: make release
+
+    - name: Run basic test
+      run: |
+        ./arm64_runner --version
+        ./update_module --help
+        ./livepatch --help
+        ./module_jit --help 2>/dev/null || true
+
+    - name: Create tar.gz archive
+      run: make tar.gz
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: arm64-runner-binaries
+        path: |
+          arm64_runner
+          update_module
+          livepatch
+          module_jit
+        retention-days: 30
+
+    - name: Upload archive artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: arm64-runner-archive
+        path: arm64-runner-*.tar.gz
+        retention-days: 30

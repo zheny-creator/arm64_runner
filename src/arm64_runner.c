@@ -2928,11 +2928,10 @@ static int config_auto_update_enabled() {
 }
 
 int main(int argc, char** argv) {
-    int local_debug = 0;
     int jit_requested = 0;
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--jit") == 0) jit_requested = 1;
-        if (strcmp(argv[i], "--debug") == 0) { local_debug = 1; debug_enabled = 1; }
+        if (strcmp(argv[i], "--debug") == 0) debug_enabled = 1;
     }
     if (jit_requested) {
         printf("[JIT] Экспериментальный режим JIT активирован!\n");
