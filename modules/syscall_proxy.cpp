@@ -316,12 +316,18 @@ extern "C" long host_syscall_proxy(long number, long arg1, long arg2, long arg3,
     }
     long x86_64_num = it->second;
     if (debug_enabled) fprintf(stderr, "[JIT][SYSCALL] ARM64#%ld → x86-64#%ld args: %ld %ld %ld %ld %ld %ld\n", number, x86_64_num, arg1, arg2, arg3, arg4, arg5, arg6);
-    // write: fd, buf, count
-    if (x86_64_num == 1) {
-        void* real_buf = (void*)arg2;
-        if (g_elf.emu_mem && (uint64_t)arg2 >= g_elf.base_addr && ((uint64_t)arg2 + (uint64_t)arg3) <= (g_elf.base_addr + g_elf.emu_mem_size)) {
-            real_buf = (uint8_t*)g_elf.emu_mem + (arg2 - g_elf.base_addr);
+
+    // --- Универсальная конвертация ARM64 виртуального адреса в хостовый ---
+    auto convert_addr = [&](uint64_t addr) -> void* {
+        if (g_elf.emu_mem && addr >= g_elf.base_addr && addr < g_elf.base_addr + g_elf.emu_mem_size) {
+            return (uint8_t*)g_elf.emu_mem + (addr - g_elf.base_addr);
         }
+        return (void*)addr;
+    };
+
+    // write(1): fd, buf*, count
+    if (x86_64_num == 1) {
+        void* real_buf = convert_addr(arg2);
         if (debug_enabled) {
             fprintf(stderr, "[JIT][SYSCALL] write(fd=%ld, buf=0x%lx, count=%ld): ", arg1, arg2, arg3);
             if (real_buf && arg3 > 0) {
@@ -332,5 +338,31 @@ extern "C" long host_syscall_proxy(long number, long arg1, long arg2, long arg3,
         }
         return syscall(x86_64_num, arg1, real_buf, arg3, arg4, arg5, arg6);
     }
+
+    // read(0): fd, buf*, count
+    if (x86_64_num == 0) {
+        void* real_buf = convert_addr(arg2);
+        return syscall(x86_64_num, arg1, real_buf, arg3, arg4, arg5, arg6);
+    }
+
+    // openat(257): dirfd, pathname*, flags, mode
+    if (x86_64_num == 257) {
+        const char* real_path = (const char*)convert_addr(arg2);
+        return syscall(x86_64_num, arg1, real_path, arg3, arg4, arg5, arg6);
+    }
+
+    // newfstatat(262): dirfd, pathname*, statbuf*, flags
+    if (x86_64_num == 262) {
+        const char* real_path = (const char*)convert_addr(arg2);
+        void* real_statbuf = convert_addr(arg3);
+        return syscall(x86_64_num, arg1, real_path, real_statbuf, arg4, arg5, arg6);
+    }
+
+    // brk(12): new_brk_addr
+    if (x86_64_num == 12) {
+        void* real_addr = convert_addr(arg1);
+        return syscall(x86_64_num, real_addr, arg2, arg3, arg4, arg5, arg6);
+    }
+
     return syscall(x86_64_num, arg1, arg2, arg3, arg4, arg5, arg6);
 } 
