@@ -20,6 +20,10 @@
 
 extern int debug_enabled;
 
+// Forward declarations for static functions
+static int is_valid_arm64_instr(uint32_t instr);
+static int is_valid_address(LivePatchSystem* system, uint64_t addr);
+
 // Удаляю повторное определение enum LivePatchType и структуры LivePatch
 // Оставляю только #include "livepatch.h" и работу с этими типами
 
@@ -119,7 +123,53 @@ int livepatch_create_nop(LivePatchSystem* system, uint64_t addr, const char* des
     return livepatch_apply(system, addr, 0xD503201F, description ? description : "NOP patch");
 }
 
+// Function Redirect — redirect entire function to new code
+// Generates trampoline: first 4 bytes of function replaced with B new_func_addr
+// On revert, original instruction is restored
+int livepatch_redirect_function(LivePatchSystem* system, uint64_t func_addr,
+                               uint64_t new_func_addr, const char* description) {
+    if (!system) return -1;
+
+    // Validate function address
+    if (!is_valid_address(system, func_addr)) {
+        if (debug_enabled) fprintf(stderr, "[LIVEPATCH][REDIRECT] Invalid function address: 0x%lX\n", func_addr);
+        return -1;
+    }
+
+    // Validate new_func_addr is within emulated memory
+    if (new_func_addr < system->base_addr || new_func_addr >= system->base_addr + system->mem_size) {
+        if (debug_enabled) fprintf(stderr, "[LIVEPATCH][REDIRECT] New function address out of memory: 0x%lX\n", new_func_addr);
+        return -1;
+    }
+
+    // Calculate offset for B instruction
+    int64_t offset = (int64_t)new_func_addr - (int64_t)func_addr;
+    if (offset < -(1LL << 25) || offset > ((1LL << 25) - 1)) {
+        // Offset too large for B — need indirect branch
+        if (debug_enabled) fprintf(stderr, "[LIVEPATCH][REDIRECT] Offset too large for B: %ld\n", offset);
+        return -1;
+    }
+
+    // Generate B instruction: 0x14000000 | ((offset >> 2) & 0x3FFFFFF)
+    uint32_t branch_instr = 0x14000000 | ((uint32_t)((offset >> 2) & 0x3FFFFFF));
+
+    char desc[512];
+    snprintf(desc, sizeof(desc), "REDIRECT: 0x%lX -> 0x%lX | %s",
+             func_addr, new_func_addr, description ? description : "");
+    desc[511] = '\0';
+
+    int ret = livepatch_apply(system, func_addr, branch_instr, desc);
+    if (ret == 0 && system->patch_count > 0) {
+        system->patches[system->patch_count - 1].patch_type = PATCH_FUNCTION_REDIRECT;
+    }
+    return ret;
+}
+
 // Базовая валидация ARM64-инструкции (можно расширить по маскам)
+static int is_valid_arm64_instr(uint32_t instr);
+static int is_valid_address(LivePatchSystem* system, uint64_t addr);
+
+// Function Redirect — redirect entire function to new code
 static int is_valid_arm64_instr(uint32_t instr) {
     // Простейшая проверка: не все нули и не все единицы
     return (instr != 0x00000000 && instr != 0xFFFFFFFF);

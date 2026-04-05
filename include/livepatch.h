@@ -20,7 +20,8 @@ typedef struct LivePatchSystem LivePatchSystem;
 typedef enum {
     PATCH_REPLACE = 0,
     PATCH_INSERT  = 1,
-    PATCH_NEW_FUNC = 2
+    PATCH_NEW_FUNC = 2,
+    PATCH_FUNCTION_REDIRECT = 3
 } LivePatchType;
 
 // Structure for storing patch information
@@ -58,6 +59,10 @@ int livepatch_reload_patches(LivePatchSystem* system, const char* filename, int 
 int livepatch_create_branch(LivePatchSystem* system, uint64_t from_addr, 
                            uint64_t to_addr, const char* description);
 int livepatch_create_nop(LivePatchSystem* system, uint64_t addr, const char* description);
+
+// Function redirect — перенаправление целой функции на новый код
+int livepatch_redirect_function(LivePatchSystem* system, uint64_t func_addr,
+                               uint64_t new_func_addr, const char* description);
 
 // Функции для получения информации
 void livepatch_list(LivePatchSystem* system);
