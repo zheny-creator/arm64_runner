@@ -14,31 +14,7 @@
 #include <getopt.h>
 #include <dirent.h>
 #include <errno.h>
-#define RUNNER_VERSION "1.1-rc2"
 #include "version.h"
-
-// --- Структуры и таблицы ---
-/*
-typedef struct {
-    const char* id;
-    const char* pretty_name;
-    const char* url;
-    const char* install_cmd;
-} DistroInfo;
-
-static const DistroInfo distro_table[] = {
-    {"ubuntu",   "Ubuntu/Debian",   "https://github.com/zheny-creator/arm64_runner/releases/download/v1.0-rc2/Arm64_Runner.deb", "sudo dpkg -i '%s'"},
-    {"debian",   "Ubuntu/Debian",   "https://github.com/zheny-creator/arm64_runner/releases/download/v1.0-rc2/Arm64_Runner.deb", "sudo dpkg -i '%s'"},
-    {"arch",     "Arch Linux",      "https://github.com/zheny-creator/arm64_runner/releases/download/v1.0-rc2/Arm64_Runner.pkg.tar.zst", "sudo pacman -U --noconfirm '%s'"},
-    {"fedora",   "Fedora/CentOS/RHEL", "https://github.com/zheny-creator/arm64_runner/releases/download/v1.0-rc2/Arm64_Runner.rpm", "sudo dnf install -y '%s'"},
-    {"centos",   "Fedora/CentOS/RHEL", "https://github.com/zheny-creator/arm64_runner/releases/download/v1.0-rc2/Arm64_Runner.rpm", "sudo dnf install -y '%s'"},
-    {"rhel",     "Fedora/CentOS/RHEL", "https://github.com/zheny-creator/arm64_runner/releases/download/v1.0-rc2/Arm64_Runner.rpm", "sudo dnf install -y '%s'"},
-    {"alt",      "ALT Linux",       "https://github.com/zheny-creator/arm64_runner/releases/download/v1.0-rc2/Arm64_Runner.rpm", "sudo dnf install -y '%s'"},
-    {"opensuse", "OpenSUSE",        "https://github.com/zheny-creator/arm64_runner/releases/download/v1.0-rc2/Arm64_Runner.rpm", "sudo zypper install -y '%s'"},
-    {"suse",     "OpenSUSE",        "https://github.com/zheny-creator/arm64_runner/releases/download/v1.0-rc2/Arm64_Runner.rpm", "sudo zypper install -y '%s'"},
-};
-#define DISTRO_TABLE_SIZE (sizeof(distro_table)/sizeof(distro_table[0]))
-*/
 
 // --- Вспомогательные функции ---
 
@@ -53,66 +29,6 @@ int update_debug = 0;
 // Глобальный флаг для RC-режима
 int update_rc_mode = 0;
 int update_force = 0;
-
-// Получение тега последнего релиза с GitHub
-static int get_latest_release_tag(char* tag, size_t tag_size) {
-    if (update_debug) fprintf(stderr, "[Update][DEBUG] Начинаем get_latest_release_tag\n");
-    if (update_debug) fprintf(stderr, "[Update][DEBUG] RC-режим: %s\n", update_rc_mode ? "включен" : "выключен");
-    if (update_debug) fprintf(stderr, "[Update][DEBUG] Используем system для получения тега...\n");
-    
-    const char* api_url;
-    if (update_rc_mode) {
-        api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases?per_page=10";
-        if (update_debug) fprintf(stderr, "[Update][DEBUG] Получаем pre-release версии...\n");
-    } else {
-        api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest";
-        if (update_debug) fprintf(stderr, "[Update][DEBUG] Получаем стабильную версию...\n");
-    }
-    
-    char curl_cmd[1024];
-    if (update_rc_mode) {
-        snprintf(curl_cmd, sizeof(curl_cmd), 
-            "curl -s '%s' | grep -B 10 '\"prerelease\": true' | grep '\"tag_name\"' | head -1 | cut -d '\"' -f4 > /tmp/latest_tag.txt", 
-            api_url);
-    } else {
-        snprintf(curl_cmd, sizeof(curl_cmd), 
-            "curl -s '%s' | grep 'tag_name' | cut -d '\"' -f4 > /tmp/latest_tag.txt", 
-            api_url);
-    }
-    
-    int result = system(curl_cmd);
-    if (result != 0) {
-        if (update_debug) fprintf(stderr, "[Update][DEBUG] system вернул ошибку: %d\n", result);
-        return 1;
-    }
-    
-    FILE* f = fopen("/tmp/latest_tag.txt", "r");
-    if (!f) {
-        if (update_debug) fprintf(stderr, "[Update][DEBUG] Не удалось открыть /tmp/latest_tag.txt\n");
-        return 1;
-    }
-    
-    if (!fgets(tag, tag_size, f)) {
-        if (update_debug) fprintf(stderr, "[Update][DEBUG] Не удалось прочитать тег из файла\n");
-        fclose(f);
-        return 1;
-    }
-    
-    fclose(f);
-    unlink("/tmp/latest_tag.txt");
-    
-    if (update_debug) fprintf(stderr, "[Update][DEBUG] fgets успешно прочитал: '%s'\n", tag);
-    size_t len = strlen(tag);
-    if (len > 0 && tag[len-1] == '\n') tag[len-1] = 0;
-    if (update_debug) fprintf(stderr, "[Update][DEBUG] После удаления \\n: '%s'\n", tag);
-    
-    if (strlen(tag) == 0 || strchr(tag, ' ') || strchr(tag, '\t') || strchr(tag, '\n')) {
-        if (update_debug) fprintf(stderr, "[Update][DEBUG] Получен некорректный тег релиза: '%s'\n", tag);
-        return 1;
-    }
-    if (update_debug) fprintf(stderr, "[Update][DEBUG] Получен тег релиза: '%s'\n", tag);
-    return 0;
-}
 
 // Буфер для загрузки JSON
 struct MemoryStruct {
@@ -132,27 +48,87 @@ static size_t write_callback(void* contents, size_t size, size_t nmemb, void* us
   return total;
 }
 
-unsigned char decode_base64_char(char c) {
-  if (c >= 'A' && c <= 'Z') return c - 'A';
-  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-  if (c >= '0' && c <= '9') return c - '0' + 52;
-  if (c == '+') return 62;
-  if (c == '/') return 63;
-  return 0;
+// --- Загрузка JSON через libcurl (единая функция) ---
+static int fetch_github_json(const char* url, char** out_json) {
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        if (update_debug) fprintf(stderr, "[Update][DEBUG] curl_easy_init failed\n");
+        return 1;
+    }
+    struct MemoryStruct chunk = {0};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "arm64_runner");
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    CURLcode res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+    if (res != CURLE_OK || !chunk.memory) {
+        if (update_debug) fprintf(stderr, "[Update][DEBUG] curl error: %s\n", res == CURLE_OK ? "no data" : curl_easy_strerror(res));
+        if (chunk.memory) free(chunk.memory);
+        return 1;
+    }
+    *out_json = chunk.memory;
+    return 0;
 }
 
-void base64_decode(const char* input, unsigned char* output, size_t* out_len) {
-  size_t len = strlen(input);
-  *out_len = 0;
-  for (size_t i = 0; i < len; i += 4) {
-    uint32_t sextet = (decode_base64_char(input[i])     << 18) |
-                      (decode_base64_char(input[i + 1]) << 12) |
-                      (decode_base64_char(input[i + 2]) << 6)  |
-                      (decode_base64_char(input[i + 3]));
-    output[(*out_len)++] = (sextet >> 16) & 0xFF;
-    output[(*out_len)++] = (sextet >> 8) & 0xFF;
-    output[(*out_len)++] = sextet & 0xFF;
-  }
+// --- Получение тега последнего релиза через libcurl + cJSON ---
+static int get_latest_release_tag(char* tag, size_t tag_size) {
+    const char* api_url;
+    if (update_rc_mode) {
+        api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases?per_page=10";
+    } else {
+        api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest";
+    }
+
+    char* json = NULL;
+    if (fetch_github_json(api_url, &json) != 0) {
+        if (update_debug) fprintf(stderr, "[Update][DEBUG] Failed to fetch release info\n");
+        return 1;
+    }
+
+    cJSON* root = cJSON_Parse(json);
+    free(json);
+    if (!root) {
+        if (update_debug) fprintf(stderr, "[Update][DEBUG] Failed to parse JSON\n");
+        return 1;
+    }
+
+    int ret = 1;
+    if (update_rc_mode) {
+        // Ищем первый pre-release в массиве
+        int sz = cJSON_GetArraySize(root);
+        for (int i = 0; i < sz; ++i) {
+            cJSON* rel = cJSON_GetArrayItem(root, i);
+            cJSON* prerelease = cJSON_GetObjectItem(rel, "prerelease");
+            cJSON* tag_item = cJSON_GetObjectItem(rel, "tag_name");
+            if (prerelease && cJSON_IsBool(prerelease) && cJSON_IsTrue(prerelease)
+                && tag_item && cJSON_IsString(tag_item)) {
+                strncpy(tag, tag_item->valuestring, tag_size - 1);
+                tag[tag_size - 1] = '\0';
+                ret = 0;
+                break;
+            }
+        }
+        if (ret != 0 && update_debug) {
+            fprintf(stderr, "[Update][DEBUG] No pre-release found\n");
+        }
+    } else {
+        // Stable: один объект
+        cJSON* tag_item = cJSON_GetObjectItem(root, "tag_name");
+        if (tag_item && cJSON_IsString(tag_item)) {
+            strncpy(tag, tag_item->valuestring, tag_size - 1);
+            tag[tag_size - 1] = '\0';
+            ret = 0;
+        }
+    }
+
+    cJSON_Delete(root);
+
+    if (ret == 0 && update_debug) {
+        fprintf(stderr, "[Update][DEBUG] Got tag: '%s'\n", tag);
+    }
+    return ret;
 }
 
 // --- Вспомогательная функция для поиска .tar.gz архива в assets (stable-режим) ---
@@ -160,7 +136,6 @@ static int find_tar_gz_asset(const char* json, char* out_url, size_t url_size, c
     cJSON* root = cJSON_Parse(json);
     if (!root) return 1;
     cJSON* assets = NULL;
-    // Если это массив (маловероятно для stable), берём первый элемент
     if (cJSON_IsArray(root)) {
         cJSON* first = cJSON_GetArrayItem(root, 0);
         if (!first) { cJSON_Delete(root); return 1; }
@@ -271,51 +246,39 @@ void update_get_url(UpdateParams* params) {
         params->filename[0] = 0;
         return;
     }
-    struct MemoryStruct chunk = {0};
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        printf("[Update] Ошибка инициализации curl!\n");
-        params->url[0] = 0;
-        params->filename[0] = 0;
-        return;
-    }
-    char api_url[256];
+
+    // Один HTTP-запрос для поиска архива
+    const char* api_url;
     if (update_rc_mode) {
-        snprintf(api_url, sizeof(api_url), "https://api.github.com/repos/zheny-creator/arm64_runner/releases?per_page=10");
+        api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases?per_page=10";
     } else {
-        snprintf(api_url, sizeof(api_url), "https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest");
+        api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest";
     }
-    curl_easy_setopt(curl, CURLOPT_URL, api_url);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "arm64_runner");
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    CURLcode res = curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
-    if (res != CURLE_OK || !chunk.memory) {
+
+    char* json = NULL;
+    if (fetch_github_json(api_url, &json) != 0) {
         printf("[Update] Ошибка загрузки информации о релизе с GitHub!\n");
         params->url[0] = 0;
         params->filename[0] = 0;
-        if (chunk.memory) free(chunk.memory);
         return;
     }
+
     char found_url[512] = {0};
     char found_name[128] = {0};
     if (update_rc_mode) {
-        // Ищем архив именно в релизе с нужным тегом
-        if (find_tar_gz_asset_by_tag(chunk.memory, tag, found_url, sizeof(found_url), found_name, sizeof(found_name)) != 0) {
+        if (find_tar_gz_asset_by_tag(json, tag, found_url, sizeof(found_url), found_name, sizeof(found_name)) != 0) {
             printf("[Update] Не найден ни один архив .tar.gz в RC-релизе с тегом %s!\n", tag);
             params->url[0] = 0;
             params->filename[0] = 0;
-            free(chunk.memory);
+            free(json);
             return;
         }
     } else {
-        if (find_tar_gz_asset(chunk.memory, found_url, sizeof(found_url), found_name, sizeof(found_name)) != 0) {
+        if (find_tar_gz_asset(json, found_url, sizeof(found_url), found_name, sizeof(found_name)) != 0) {
             printf("[Update] Не найден ни один архив .tar.gz в релизе!\n");
             params->url[0] = 0;
             params->filename[0] = 0;
-            free(chunk.memory);
+            free(json);
             return;
         }
     }
@@ -323,7 +286,7 @@ void update_get_url(UpdateParams* params) {
     params->url[sizeof(params->url)-1] = 0;
     strncpy(params->filename, found_name, sizeof(params->filename)-1);
     params->filename[sizeof(params->filename)-1] = 0;
-    free(chunk.memory);
+    free(json);
 }
 
 #ifndef _GNU_SOURCE
@@ -339,7 +302,7 @@ char* strndup(const char* s, size_t n) {
 #endif
 
 int update_download(const UpdateParams* params) {
-    printf("[Update][DEBUG] Downloading from URL: %s\n", params->url);
+    printf("[Update] Downloading from URL: %s\n", params->url);
     CURL* curl = curl_easy_init();
     if (!curl) return 1;
 
@@ -359,15 +322,15 @@ int update_download(const UpdateParams* params) {
     fclose(f);
     curl_easy_cleanup(curl);
 
-    printf("[Update][DEBUG] curl_easy_perform result: %d\n", res);
     if (res != CURLE_OK) {
-        printf("[Update][DEBUG] curl error: %s\n", curl_easy_strerror(res));
+        printf("[Update][ERROR] curl error: %s\n", curl_easy_strerror(res));
+        return 1;
     }
     struct stat st;
     if (stat(params->filename, &st) == 0) {
-        printf("[Update][DEBUG] Downloaded file size: %ld bytes\n", (long)st.st_size);
+        printf("[Update] Downloaded: %ld bytes\n", (long)st.st_size);
     }
-    return (res == CURLE_OK) ? 0 : 1;
+    return 0;
 }
 
 int update_verify(const UpdateParams* params) {
@@ -378,7 +341,6 @@ int update_verify(const UpdateParams* params) {
     struct stat st;
     stat(params->filename, &st);
     printf("[Update] Файл успешно скачан: %s (%ld bytes)\n", params->filename, (long)st.st_size);
-    // --- Проверка: минимальный размер и сигнатура gzip ---
     if (st.st_size < 1024) {
         printf("[Update][ERROR] Архив слишком мал (%ld bytes), возможно, это не архив!\n", (long)st.st_size);
         remove(params->filename);
@@ -428,7 +390,6 @@ static int copy_dir_safe(const char* src, const char* dst) {
             }
             if (copy_dir_safe(src_path, dst_path) != 0) { ret = -1; break; }
         } else if (S_ISREG(st.st_mode)) {
-            // --- Логика для update_module ---
             if (strcmp(entry->d_name, "update_module") == 0) {
                 snprintf(update_module_new_path, sizeof(update_module_new_path), "%s/update_module.new", dst);
                 FILE* in = fopen(src_path, "rb");
@@ -456,7 +417,6 @@ static int copy_dir_safe(const char* src, const char* dst) {
                 printf("[Update][INFO] update_module скопирован как update_module.new для последующей замены.\n");
                 continue;
             }
-            // --- Обычное копирование ---
             FILE* in = fopen(src_path, "rb");
             if (!in) {
                 printf("[Update][ERROR] Не удалось открыть файл для чтения: %s (errno=%d)\n", src_path, errno);
@@ -481,18 +441,14 @@ static int copy_dir_safe(const char* src, const char* dst) {
         }
     }
     closedir(dir);
-    // --- После копирования: если update_module.new создан, запускаем скрипт замены ---
     if (update_module_needs_replace && update_module_new_path[0]) {
         printf("[Update][INFO] Автоматическая замена update_module будет выполнена после завершения процесса...\n");
-        // Получаем свой PID
         pid_t mypid = getpid();
-        // Скрипт: ждёт завершения только этого PID, затем mv
         char cmd[1024];
         snprintf(cmd, sizeof(cmd),
             "sh -c 'while kill -0 %d 2>/dev/null; do sleep 0.5; done; mv update_module.new update_module && chmod +x update_module && echo \"[Update] update_module обновлён!\"'",
             mypid);
         if (fork() == 0) {
-            // В дочернем процессе
             if (system(cmd) < 0) {
                 fprintf(stderr, "[Update][ERROR] system() failed\n");
             }
@@ -534,9 +490,8 @@ static void find_real_root(char* dir, size_t dir_size) {
             }
         }
         closedir(d);
-        if (count_files > 0) break; // есть хотя бы один файл — стоп
+        if (count_files > 0) break;
         if (count_dirs == 1 && only_dir[0]) {
-            // только одна папка и нет файлов — спускаемся
             if (strlen(only_dir) >= dir_size) {
                 strncpy(dir, only_dir, dir_size-1);
                 dir[dir_size-1] = '\0';
@@ -544,11 +499,9 @@ static void find_real_root(char* dir, size_t dir_size) {
                 strcpy(dir, only_dir);
             }
         } else {
-            // либо несколько папок, либо ничего — стоп
             break;
         }
     }
-    // После strncpy и snprintf явно обнуляю последний байт
     dir[dir_size-1] = '\0';
 }
 
@@ -566,7 +519,6 @@ int update_extract(const UpdateParams* params) {
         if (system(cmd) == -1) { fprintf(stderr, "system() failed\n"); }
         return 1;
     }
-    // --- Рекурсивно ищем "реальный" корень с файлами ---
     char real_root[512];
     strncpy(real_root, tmpdir, sizeof(real_root)-1);
     real_root[sizeof(real_root)-1] = 0;
@@ -584,7 +536,6 @@ int update_extract(const UpdateParams* params) {
         return 1;
     }
     printf("[Update] Архив успешно распакован и файлы обновлены в текущей директории.\n");
-    // Удаляем архив после обновления
     if (remove(params->filename) == 0) {
         printf("[Update] Архив %s удалён после обновления.\n", params->filename);
     } else {
@@ -611,23 +562,31 @@ int run_update() {
     parse_version_tag(latest_tag, &latest_major, &latest_minor, &latest_rc);
     if (!update_force) {
         if (cur_rc == 0 && latest_rc == 0) {
-            // Обычные релизы: обновлять только если версия пользователя ниже
+            // Stable vs stable
             if (cur_major > latest_major || (cur_major == latest_major && cur_minor >= latest_minor)) {
                 printf("[Update] Already up to date (v%d.%d).\n", cur_major, cur_minor);
                 return 0;
             }
         } else if (cur_rc > 0 && latest_rc > 0) {
-            // RC-версии: обновлять только если версия пользователя ниже
+            // RC vs RC
             if (cur_major > latest_major || (cur_major == latest_major && cur_minor > latest_minor) || (cur_major == latest_major && cur_minor == latest_minor && cur_rc >= latest_rc)) {
                 printf("[Update] Already up to date (v%d.%d-rc%d).\n", cur_major, cur_minor, cur_rc);
                 return 0;
             }
-            // Если версия пользователя ниже — обновляем
+        } else if (cur_rc == 0 && latest_rc > 0) {
+            // Stable vs RC: stable всегда новее
+            if (cur_major >= latest_major && cur_minor >= latest_minor) {
+                printf("[Update] Already up to date (v%d.%d stable > %s pre-release).\n", cur_major, cur_minor, latest_tag);
+                return 0;
+            }
+        } else if (cur_rc > 0 && latest_rc == 0) {
+            // RC vs stable: stable всегда новее, предлагаем обновиться
+            if (update_debug) {
+                printf("[Update][DEBUG] RC -> stable upgrade: v%d.%d-rc%d -> v%d.%d\n",
+                    cur_major, cur_minor, cur_rc, latest_major, latest_minor);
+            }
         }
     }
-    // --- Получение архива только по расширению .tar.gz из assets ---
-    // update_get_url уже ищет .tar.gz через find_tar_gz_asset и заполняет params.filename/params.url
-    // Не формируем имя архива вручную, используем только найденное в assets
     printf("[Update] Последняя версия: %s%s\n", latest_tag, update_rc_mode ? " (pre-release)" : "");
     printf("[Update] URL: %s\n", params.url);
     if (update_download(&params) != 0) {
@@ -662,10 +621,9 @@ void print_update_help() {
     printf("  update_module --debug --rc # Установить RC с отладкой\n");
     printf("\n");
     printf("Архив будет распакован в текущую директорию.\n");
-} 
+}
 
 int main(int argc, char **argv) {
-    // Запрет запуска от root
     if (geteuid() == 0) {
         fprintf(stderr, "[SECURITY] Запуск update_module от имени root запрещён! Используйте обычного пользователя.\n");
         return 1;
@@ -678,7 +636,6 @@ int main(int argc, char **argv) {
             return 0;
         }
     }
-    // --- Обработка опций ---
     int opt;
     static struct option long_options[] = {
         {"debug", no_argument, 0, 'd'},
@@ -708,6 +665,5 @@ int main(int argc, char **argv) {
         }
     }
 
-    // --- Запуск обновления ---
     return run_update();
-} 
+}
