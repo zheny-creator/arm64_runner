@@ -32,7 +32,14 @@ jobs:
           curl tar gzip
 
     - name: Build all targets
-      run: make release
+      run: |
+        if [[ "${{ github.ref_name }}" == *"-rc"* ]]; then
+          echo "RC build detected, using 'make rc'"
+          make rc
+        else
+          echo "Stable build, using 'make release'"
+          make release
+        fi
 
     - name: Run basic tests
       run: |

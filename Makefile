@@ -76,8 +76,9 @@ release: increment_build arm64_runner livepatch update_module module_jit
 	@echo "Built release: v$(MARKETING_MAJOR).$(MARKETING_MINOR) (build $(VERSION_CODE).$(BUILD_NUMBER))"
 
 # --- RC-сборка ---
+RC_NUMBER ?= 1
 rc: increment_build
-	$(MAKE) RC_NUMBER=$(RC) arm64_runner livepatch update_module module_jit
+	$(MAKE) RC_NUMBER=$(RC_NUMBER) arm64_runner livepatch update_module module_jit
 
 # =====================================================
 # ARM64 Runner
