@@ -13,10 +13,16 @@ CXXFLAGS = -Wall -Wextra -std=c++17 -O2 -g -Iinclude
 # --- Библиотеки ---
 # Динамические (системные, всегда есть на хосте)
 LDLIBS_DYNAMIC = -lpthread -lssl -lcrypto -lwayland-client -lm -lcjson -lcurl -ldl -lstdc++
-# Статические (встраиваем в бинарник)
+# Статические (встраиваем в бинарник, если доступны)
 LDFLAGS_STATIC = -Wl,-Bstatic -lasmjit -lcapstone -Wl,-Bdynamic
-# Полные флаги линковки
-LDLIBS = $(LDFLAGS_STATIC) $(LDLIBS_DYNAMIC)
+# Проверяем наличие статических библиотек
+ASMJIT_STATIC := $(shell [ -f /usr/lib/x86_64-linux-gnu/libasmjit.a ] && echo 1 || echo 0)
+CAPSTONE_STATIC := $(shell [ -f /usr/lib/x86_64-linux-gnu/libcapstone.a ] && echo 1 || echo 0)
+ifeq ($(ASMJIT_STATIC)$(CAPSTONE_STATIC),11)
+    LDLIBS = $(LDFLAGS_STATIC) $(LDLIBS_DYNAMIC)
+else
+    LDLIBS = -lasmjit -lcapstone $(LDLIBS_DYNAMIC)
+endif
 
 # --- Параметры версии ---
 MARKETING_MAJOR ?= 1
