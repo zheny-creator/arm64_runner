@@ -683,6 +683,32 @@ static int prompt_install(void) {
     return prompt_install();
 }
 
+// --- Detect version from sibling arm64_runner binary ---
+static int detect_installed_version(int* major, int* minor, int* rc) {
+    // Method 1: Try version file
+    FILE* vf = fopen(".arm64_runner_version", "r");
+    if (vf) {
+        char buf[64] = {0};
+        if (fread(buf, 1, sizeof(buf)-1, vf) > 0) {
+            fclose(vf);
+            if (sscanf(buf, "v%d.%d-rc%d", major, minor, rc) == 3) return 0;
+            if (sscanf(buf, "v%d.%d", major, minor) == 2) { *rc = 0; return 0; }
+        }
+        fclose(vf);
+    }
+    // Method 2: Search version string in ELF binary
+    FILE* fp = popen("grep -ao 'v[0-9]\\+\\.[0-9]\\+\\(-rc[0-9]\\+\\)\\?' ./arm64_runner 2>/dev/null | head -1", "r");
+    if (!fp) return -1;
+    char buf[64] = {0};
+    if (fread(buf, 1, sizeof(buf)-1, fp) > 0) {
+        pclose(fp);
+        if (sscanf(buf, "v%d.%d-rc%d", major, minor, rc) == 3) return 0;
+        if (sscanf(buf, "v%d.%d", major, minor) == 2) { *rc = 0; return 0; }
+    }
+    pclose(fp);
+    return -1;
+}
+
 int run_update() {
     UpdateParams params = {0};
     update_get_url(&params);
@@ -695,8 +721,16 @@ int run_update() {
         printf("[Update] Не удалось получить тег последнего релиза!\n");
         return 1;
     }
-    // --- Сравнение версий ---
+    // --- Detect installed version from arm64_runner binary ---
     int cur_major = MARKETING_MAJOR, cur_minor = MARKETING_MINOR, cur_rc = RC_NUMBER;
+    int detected_major = -1, detected_minor = -1, detected_rc = -1;
+    if (detect_installed_version(&detected_major, &detected_minor, &detected_rc) == 0) {
+        cur_major = detected_major;
+        cur_minor = detected_minor;
+        cur_rc = detected_rc;
+        if (update_debug) fprintf(stderr, "[Update][DEBUG] Detected installed version: v%d.%d%s\n",
+            cur_major, cur_minor, cur_rc > 0 ? "-rc" : "");
+    }
     int latest_major = 0, latest_minor = 0, latest_rc = 0;
     parse_version_tag(latest_tag, &latest_major, &latest_minor, &latest_rc);
     if (!update_force) {

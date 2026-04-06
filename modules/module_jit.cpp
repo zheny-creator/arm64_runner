@@ -207,7 +207,7 @@ DecodedInstr decode_arm64(uint32_t opcode, uint64_t pc) {
         d.dst = (opcode >> 0) & 0x1f;
         uint32_t imm16 = (opcode >> 5) & 0xffff;
         uint32_t hw = (opcode >> 21) & 0x3;
-        d.imm = ~(imm16 << (hw * 16));
+        d.imm = imm16 << (hw * 16);
     } else if ((opcode & 0x7fe0fc00) == 0x2a000000 && (opcode & 0x80000000)) {
         // ORR Xd, Xn, Xm  (n=31 means MOV Xd, Xm)
         uint8_t rn = (opcode >> 5) & 0x1f;
@@ -280,7 +280,9 @@ int execute_decoded(const DecodedInstr& d, asmjit::CodeHolder& code, Arm64Contex
         }
         case IT_MOVN: {
             x86::Assembler a(&code);
-            a.mov(x86::rax, ~(uint64_t)d.imm);
+            // MOVN инвертирует ВСЕ 64 бита, не только нижние 32
+            uint64_t val = ~((uint64_t)d.imm);
+            a.mov(x86::rax, val);
             a.ret();
             break;
         }
@@ -356,6 +358,10 @@ int jit_execute(const char* symbol, int argc, uint64_t* argv) {
                 break;
             case IT_ADD:
                 ctx.x[d.dst] = res;
+                break;
+            case IT_SVC:
+                // Результат syscall записывается в x0
+                ctx.x[0] = res;
                 break;
             default: break;
         }

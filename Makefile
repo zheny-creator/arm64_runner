@@ -10,8 +10,13 @@ CXX     = g++
 CFLAGS   = -Wall -Wextra -std=c99 -O2 -g -Iinclude
 CXXFLAGS = -Wall -Wextra -std=c++17 -O2 -g -Iinclude
 
-# --- Библиотеки (LDLIBS, не LDFLAGS) ---
-LDLIBS = -lpthread -lssl -lcrypto -lwayland-client -lm -lcjson -lcurl -lasmjit -ldl -lstdc++ -lcapstone
+# --- Библиотеки ---
+# Динамические (системные, всегда есть на хосте)
+LDLIBS_DYNAMIC = -lpthread -lssl -lcrypto -lwayland-client -lm -lcjson -lcurl -ldl -lstdc++
+# Статические (встраиваем в бинарник)
+LDFLAGS_STATIC = -Wl,-Bstatic -lasmjit -lcapstone -Wl,-Bdynamic
+# Полные флаги линковки
+LDLIBS = $(LDFLAGS_STATIC) $(LDLIBS_DYNAMIC)
 
 # --- Параметры версии ---
 MARKETING_MAJOR ?= 1
@@ -73,12 +78,14 @@ increment_build:
 	@echo $$(( $$(cat $(BUILD_COUNTER_FILE)) + 1 )) > $(BUILD_COUNTER_FILE)
 
 release: increment_build arm64_runner livepatch update_module module_jit
+	@echo "v$(MARKETING_MAJOR).$(MARKETING_MINOR)" > .arm64_runner_version
 	@echo "Built release: v$(MARKETING_MAJOR).$(MARKETING_MINOR) (build $(VERSION_CODE).$(BUILD_NUMBER))"
 
 # --- RC-сборка ---
 RC_NUMBER ?= 1
 rc: increment_build
 	$(MAKE) RC_NUMBER=$(RC_NUMBER) arm64_runner livepatch update_module module_jit
+	@echo "v$(MARKETING_MAJOR).$(MARKETING_MINOR)-rc$(RC_NUMBER)" > .arm64_runner_version
 
 # =====================================================
 # ARM64 Runner
@@ -252,6 +259,7 @@ $(SOURCE_ARCHIVE): arm64_runner update_module livepatch module_jit
 	@rm -rf arm64-runner-1.0
 	mkdir -p arm64-runner-1.0
 	cp arm64_runner update_module livepatch module_jit arm64-runner-1.0/
+	echo "v$(MARKETING_MAJOR).$(MARKETING_MINOR)" > arm64-runner-1.0/.arm64_runner_version
 	tar czf $(SOURCE_ARCHIVE) arm64-runner-1.0
 	rm -rf arm64-runner-1.0
 

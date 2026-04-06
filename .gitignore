@@ -21,6 +21,7 @@ arm_runner/
 *.txt
 *.tbl
 docs/ROADMAP.md
+docs/SECURITY_VULNS.md
 *.py
 *.s
 

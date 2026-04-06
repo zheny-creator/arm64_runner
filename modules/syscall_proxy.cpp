@@ -319,11 +319,9 @@ extern "C" long host_syscall_proxy(long number, long arg1, long arg2, long arg3,
 
     // --- Универсальная конвертация ARM64 виртуального адреса в хостовый ---
     auto convert_addr = [&](uint64_t addr) -> void* {
-        // Если есть эмулированная память
         if (g_elf.emu_mem && addr >= g_elf.base_addr && addr < g_elf.base_addr + g_elf.emu_mem_size) {
             return (uint8_t*)g_elf.emu_mem + (addr - g_elf.base_addr);
         }
-        // Если ELF mmap'нут напрямую — конвертируем через mapped
         if (g_elf.mapped && addr >= g_elf.base_addr && addr < g_elf.base_addr + g_elf.size) {
             return (uint8_t*)g_elf.mapped + (addr - g_elf.base_addr);
         }
@@ -333,14 +331,6 @@ extern "C" long host_syscall_proxy(long number, long arg1, long arg2, long arg3,
     // write(1): fd, buf*, count
     if (x86_64_num == 1) {
         void* real_buf = convert_addr(arg2);
-        if (debug_enabled) {
-            fprintf(stderr, "[JIT][SYSCALL] write(fd=%ld, buf=0x%lx, count=%ld): ", arg1, arg2, arg3);
-            if (real_buf && arg3 > 0) {
-                const char* s = (const char*)real_buf;
-                for (long i = 0; i < arg3; ++i) fputc(s[i], stderr);
-            }
-            fputc('\n', stderr);
-        }
         return syscall(x86_64_num, arg1, real_buf, arg3, arg4, arg5, arg6);
     }
 
