@@ -14,7 +14,15 @@
 #include <getopt.h>
 #include <dirent.h>
 #include <errno.h>
+#include <ctype.h>
 #include "version.h"
+
+// --- ANSI Colors ---
+#define COLOR_GREEN  "\033[32m"
+#define COLOR_CYAN   "\033[36m"
+#define COLOR_WHITE  "\033[37m"
+#define COLOR_BOLD   "\033[1m"
+#define COLOR_RESET  "\033[0m"
 
 // --- Вспомогательные функции ---
 
@@ -29,6 +37,7 @@ int update_debug = 0;
 // Глобальный флаг для RC-режима
 int update_rc_mode = 0;
 int update_force = 0;
+int update_yes = 0;
 
 // Буфер для загрузки JSON
 struct MemoryStruct {
@@ -544,6 +553,136 @@ int update_extract(const UpdateParams* params) {
     return 0;
 }
 
+static void strip_markdown(char* out, const char* in, size_t out_size) {
+    size_t j = 0;
+    int in_code_block = 0;
+    for (size_t i = 0; in[i] && j < out_size - 1; ++i) {
+        // Skip code blocks
+        if (in[i] == '`' && in[i+1] == '`' && in[i+2] == '`') {
+            in_code_block = !in_code_block;
+            i += 2;
+            continue;
+        }
+        if (in_code_block) continue;
+        // Skip bold markers
+        if (in[i] == '*' && in[i+1] == '*') { i++; continue; }
+        if (in[i] == '*' && in[i-1] == '*') continue;
+        // Skip headers
+        if (in[i] == '#' && (i == 0 || in[i-1] == '\n')) {
+            while (in[i] == '#') i++;
+            if (in[i] == ' ') i++;
+            continue;
+        }
+        // Skip bullet points
+        if (in[i] == '-' && (i == 0 || in[i-1] == '\n')) {
+            if (in[i+1] == ' ') { i++; continue; }
+        }
+        out[j++] = in[i];
+    }
+    out[j] = '\0';
+    // Trim trailing whitespace
+    while (j > 0 && (out[j-1] == '\n' || out[j-1] == ' ' || out[j-1] == '\r')) out[--j] = '\0';
+}
+
+// Fetch release notes from GitHub API
+static int fetch_release_notes(const char* tag, char* notes, size_t notes_size) {
+    const char* api_url;
+    if (update_rc_mode || (tag && strchr(tag, '-'))) {
+        api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases?per_page=10";
+    } else {
+        api_url = "https://api.github.com/repos/zheny-creator/arm64_runner/releases/latest";
+    }
+
+    char* json = NULL;
+    if (fetch_github_json(api_url, &json) != 0) return 1;
+
+    cJSON* root = cJSON_Parse(json);
+    free(json);
+    if (!root) return 1;
+
+    int ret = 1;
+    if (cJSON_IsArray(root)) {
+        int sz = cJSON_GetArraySize(root);
+        for (int i = 0; i < sz; ++i) {
+            cJSON* rel = cJSON_GetArrayItem(root, i);
+            cJSON* tag_item = cJSON_GetObjectItem(rel, "tag_name");
+            cJSON* body = cJSON_GetObjectItem(rel, "body");
+            if (tag && tag_item && cJSON_IsString(tag_item) && strcmp(tag_item->valuestring, tag) == 0) {
+                if (body && cJSON_IsString(body)) {
+                    strncpy(notes, body->valuestring, notes_size - 1);
+                    notes[notes_size - 1] = '\0';
+                    ret = 0;
+                }
+                break;
+            }
+        }
+    } else {
+        cJSON* body = cJSON_GetObjectItem(root, "body");
+        if (body && cJSON_IsString(body)) {
+            strncpy(notes, body->valuestring, notes_size - 1);
+            notes[notes_size - 1] = '\0';
+            ret = 0;
+        }
+    }
+    cJSON_Delete(root);
+    return ret;
+}
+
+// Display changelog in cyan
+static void display_changelog(const char* notes) {
+    if (!notes || notes[0] == '\0') return;
+
+    char clean[4096];
+    strip_markdown(clean, notes, sizeof(clean));
+
+    printf("\n" COLOR_CYAN "[Update] Изменения:\n" COLOR_RESET);
+
+    const char* line = clean;
+    while (*line) {
+        // Find end of line
+        const char* end = strchr(line, '\n');
+        size_t len = end ? (size_t)(end - line) : strlen(line);
+
+        // Skip empty lines
+        if (len > 0) {
+            // Check if line starts with bullet or dash
+            int is_bullet = (line[0] == '-' || line[0] == '*');
+            if (is_bullet && len > 1 && line[1] == ' ') {
+                line += 2;
+                len -= 2;
+            }
+            printf("  " COLOR_CYAN "%.*s\n" COLOR_RESET, (int)len, line);
+        }
+
+        if (end) line = end + 1;
+        else break;
+    }
+    printf(COLOR_RESET "\n");
+}
+
+// Interactive prompt: "Install update? [Y/n]"
+static int prompt_install(void) {
+    // If not a terminal, auto-approve
+    if (!isatty(STDIN_FILENO)) return 1;
+
+    printf(COLOR_GREEN COLOR_BOLD "Установить обновление? " COLOR_WHITE "[Y/n] " COLOR_RESET);
+    fflush(stdout);
+
+    // Set 30-second timeout using alarm
+    alarm(30);
+
+    int c = getchar();
+    alarm(0); // Cancel alarm
+
+    if (c == EOF) return 0; // Timeout or EOF
+    if (c == '\n' || c == 'y' || c == 'Y') return 1;
+    if (c == 'n' || c == 'N') return 0;
+
+    // Invalid input, ask again
+    while (c != '\n' && c != EOF) c = getchar(); // consume rest of line
+    return prompt_install();
+}
+
 int run_update() {
     UpdateParams params = {0};
     update_get_url(&params);
@@ -588,6 +727,22 @@ int run_update() {
         }
     }
     printf("[Update] Последняя версия: %s%s\n", latest_tag, update_rc_mode ? " (pre-release)" : "");
+    printf("[Update] Текущая версия: v%d.%d%s\n", cur_major, cur_minor, cur_rc > 0 ? "-rc" : "");
+
+    // --- Interactive prompt ---
+    if (!update_force && !update_yes) {
+        char notes[4096] = {0};
+        if (fetch_release_notes(latest_tag, notes, sizeof(notes)) == 0) {
+            display_changelog(notes);
+        } else {
+            printf(COLOR_CYAN "[Update] Release notes unavailable\n" COLOR_RESET);
+        }
+        if (!prompt_install()) {
+            printf("[Update] Обновление отменено.\n");
+            return 0;
+        }
+    }
+
     printf("[Update] URL: %s\n", params.url);
     if (update_download(&params) != 0) {
         printf("[Update] Download failed!\n");
@@ -613,6 +768,7 @@ void print_update_help() {
     printf("  --rc, -r        Установить pre-release (RC) версию вместо стабильной\n");
     printf("  --prerelease    То же, что и --rc\n");
     printf("  --force         Принудительно обновить даже если версия совпадает\n");
+    printf("  --yes, -y       Автоматически подтвердить установку (без интерактива)\n");
     printf("  --help, -h      Показать эту справку\n");
     printf("\n");
     printf("Пример:\n");
@@ -642,10 +798,11 @@ int main(int argc, char **argv) {
         {"rc", no_argument, 0, 'r'},
         {"prerelease", no_argument, 0, 'r'},
         {"force", no_argument, 0, 'f'},
+        {"yes", no_argument, 0, 'y'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
-    while ((opt = getopt_long(argc, argv, "drhf", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "drhfy", long_options, NULL)) != -1) {
         switch (opt) {
             case 'd':
                 update_debug = 1;
@@ -655,6 +812,9 @@ int main(int argc, char **argv) {
                 break;
             case 'f':
                 update_force = 1;
+                break;
+            case 'y':
+                update_yes = 1;
                 break;
             case 'h':
                 print_update_help();
