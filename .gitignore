@@ -20,7 +20,7 @@ arm_runner/
 *.log
 *.txt
 *.tbl
-*.md
+docs/ROADMAP.md
 *.py
 *.s
 
