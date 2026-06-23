@@ -344,7 +344,7 @@ int jit_execute(const char* symbol, int argc, uint64_t* argv) {
         }
         void* fn = nullptr;
         asmjit::Error err = rt.add(&fn, &codeHolder);
-        if (err) { if (debug_enabled) printf("[JIT][ERROR] PC=0x%lx: asmjit error: %d\n", ctx.pc, err); return -4; }
+        if (err != asmjit::kErrorOk) { if (debug_enabled) printf("[JIT][ERROR] PC=0x%lx: asmjit error: %d\n", ctx.pc, static_cast<int>(err)); return -4; }
         typedef uint64_t (*JitFunc)();
         uint64_t res = ((JitFunc)fn)();
         rt.release(fn);
