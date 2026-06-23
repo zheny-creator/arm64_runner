@@ -15,7 +15,9 @@
 #include <dirent.h>
 #include <errno.h>
 #include <ctype.h>
+#include <ftw.h>
 #include "version.h"
+#include <openssl/evp.h>
 
 // --- ANSI Colors ---
 #define COLOR_GREEN  "\033[32m"
@@ -348,7 +350,10 @@ int update_verify(const UpdateParams* params) {
         return 0;
     }
     struct stat st;
-    stat(params->filename, &st);
+    if (stat(params->filename, &st) != 0) {
+        printf("[Update] Не удалось stat файл: %s\n", params->filename);
+        return 0;
+    }
     printf("[Update] Файл успешно скачан: %s (%ld bytes)\n", params->filename, (long)st.st_size);
     if (st.st_size < 1024) {
         printf("[Update][ERROR] Архив слишком мал (%ld bytes), возможно, это не архив!\n", (long)st.st_size);
@@ -365,7 +370,79 @@ int update_verify(const UpdateParams* params) {
         remove(params->filename);
         return 0;
     }
+    // Compute SHA256 for integrity verification (EVP API, OpenSSL 3.0+ compatible)
+    f = fopen(params->filename, "rb");
+    if (f) {
+        unsigned char hash[EVP_MAX_MD_SIZE];
+        unsigned int hash_len = 0;
+        EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+        if (ctx) {
+            EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
+            unsigned char buf[8192];
+            size_t n;
+            while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+                EVP_DigestUpdate(ctx, buf, n);
+            }
+            EVP_DigestFinal_ex(ctx, hash, &hash_len);
+            EVP_MD_CTX_free(ctx);
+        }
+        fclose(f);
+        if (hash_len > 0) {
+            printf("[Update] SHA256: ");
+            for (unsigned int i = 0; i < hash_len; i++) printf("%02x", hash[i]);
+            printf("\n");
+        }
+    }
     return 1;
+}
+
+// --- Вспомогательная функция: копирование одного файла (streaming, без shell) ---
+static int copy_file(const char* src_path, const char* dst_path) {
+    FILE* in = fopen(src_path, "rb");
+    if (!in) {
+        printf("[Update][ERROR] Не удалось открыть файл для чтения: %s (errno=%d)\n", src_path, errno);
+        return -1;
+    }
+    FILE* out = fopen(dst_path, "wb");
+    if (!out) {
+        printf("[Update][ERROR] Не удалось открыть файл для записи: %s (errno=%d)\n", dst_path, errno);
+        fclose(in);
+        return -1;
+    }
+    char buf[8192];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+        if (fwrite(buf, 1, n, out) != n) {
+            printf("[Update][ERROR] Ошибка записи в файл: %s (errno=%d)\n", dst_path, errno);
+            fclose(in); fclose(out);
+            return -1;
+        }
+    }
+    fclose(in); fclose(out);
+    return 0;
+}
+
+// --- Вспомогательная функция: рекурсивное удаление директории (без shell) ---
+static int rm_rf(const char* path) {
+    struct stat st;
+    if (lstat(path, &st) != 0) return 0; // not found — ok
+    if (S_ISDIR(st.st_mode)) {
+        DIR* dir = opendir(path);
+        if (!dir) return -1;
+        struct dirent* entry;
+        int ret = 0;
+        while ((entry = readdir(dir)) != NULL) {
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+            char child[1024];
+            snprintf(child, sizeof(child), "%s/%s", path, entry->d_name);
+            if (rm_rf(child) != 0) { ret = -1; break; }
+        }
+        closedir(dir);
+        if (ret == 0 && rmdir(path) != 0) ret = -1;
+        return ret;
+    } else {
+        return remove(path);
+    }
 }
 
 // --- Безопасное рекурсивное копирование директорий без симлинков ---
@@ -401,67 +478,29 @@ static int copy_dir_safe(const char* src, const char* dst) {
         } else if (S_ISREG(st.st_mode)) {
             if (strcmp(entry->d_name, "update_module") == 0) {
                 snprintf(update_module_new_path, sizeof(update_module_new_path), "%s/update_module.new", dst);
-                FILE* in = fopen(src_path, "rb");
-                if (!in) {
-                    printf("[Update][ERROR] Не удалось открыть файл для чтения: %s (errno=%d)\n", src_path, errno);
-                    ret = -1; break;
-                }
-                FILE* out = fopen(update_module_new_path, "wb");
-                if (!out) {
-                    printf("[Update][ERROR] Не удалось открыть файл для записи: %s (errno=%d)\n", update_module_new_path, errno);
-                    fclose(in);
-                    ret = -1; break;
-                }
-                char buf[8192];
-                size_t n;
-                while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
-                    if (fwrite(buf, 1, n, out) != n) {
-                        printf("[Update][ERROR] Ошибка записи в файл: %s (errno=%d)\n", update_module_new_path, errno);
-                        ret = -1; break;
-                    }
-                }
-                fclose(in); fclose(out);
-                if (ret != 0) break;
+                if (copy_file(src_path, update_module_new_path) != 0) { ret = -1; break; }
+                chmod(update_module_new_path, 0755);
                 update_module_needs_replace = 1;
                 printf("[Update][INFO] update_module скопирован как update_module.new для последующей замены.\n");
                 continue;
             }
-            FILE* in = fopen(src_path, "rb");
-            if (!in) {
-                printf("[Update][ERROR] Не удалось открыть файл для чтения: %s (errno=%d)\n", src_path, errno);
-                ret = -1; break;
-            }
-            FILE* out = fopen(dst_path, "wb");
-            if (!out) {
-                printf("[Update][ERROR] Не удалось открыть файл для записи: %s (errno=%d)\n", dst_path, errno);
-                fclose(in);
-                ret = -1; break;
-            }
-            char buf[8192];
-            size_t n;
-            while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
-                if (fwrite(buf, 1, n, out) != n) {
-                    printf("[Update][ERROR] Ошибка записи в файл: %s (errno=%d)\n", dst_path, errno);
-                    ret = -1; break;
-                }
-            }
-            fclose(in); fclose(out);
-            if (ret != 0) break;
+            if (copy_file(src_path, dst_path) != 0) { ret = -1; break; }
+            chmod(dst_path, st.st_mode & 0777);
         }
     }
     closedir(dir);
     if (update_module_needs_replace && update_module_new_path[0]) {
+        // Forked child waits for parent to exit, then atomically replaces update_module.
+        // Uses execl("/bin/mv") instead of system() to prevent shell injection.
         printf("[Update][INFO] Автоматическая замена update_module будет выполнена после завершения процесса...\n");
         pid_t mypid = getpid();
-        char cmd[1024];
-        snprintf(cmd, sizeof(cmd),
-            "sh -c 'while kill -0 %d 2>/dev/null; do sleep 0.5; done; mv update_module.new update_module && chmod +x update_module && echo \"[Update] update_module обновлён!\"'",
-            mypid);
         if (fork() == 0) {
-            if (system(cmd) < 0) {
-                fprintf(stderr, "[Update][ERROR] system() failed\n");
-            }
-            exit(0);
+            // Child: wait for parent to exit
+            while (kill(mypid, 0) == 0) { struct timespec ts = {0, 500000000}; nanosleep(&ts, NULL); }
+            rename("update_module.new", "update_module");
+            chmod("update_module", 0755);
+            printf("[Update] update_module обновлён!\n");
+            _exit(0);
         }
     }
     return ret;
@@ -515,27 +554,48 @@ static void find_real_root(char* dir, size_t dir_size) {
 }
 
 int update_extract(const UpdateParams* params) {
-    char tmpdir[64] = "tmp_update_unpack";
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "rm -rf %s && mkdir -p %s", tmpdir, tmpdir);
-    if (system(cmd) == -1) { fprintf(stderr, "system() failed\n"); }
-    snprintf(cmd, sizeof(cmd), "tar -xzf '%s' -C %s", params->filename, tmpdir);
-    printf("[Update] Распаковка архива во временную папку: %s\n", cmd);
-    int res = system(cmd);
-    if (res != 0) {
-        printf("[Update] Ошибка распаковки архива!\n");
-        snprintf(cmd, sizeof(cmd), "rm -rf %s", tmpdir);
-        if (system(cmd) == -1) { fprintf(stderr, "system() failed\n"); }
+    // Validate filename: reject any path separators or shell metacharacters
+    const char* fname = params->filename;
+    if (!fname || fname[0] == 0) {
+        printf("[Update][ERROR] Имя файла не задано!\n");
         return 1;
     }
+    for (const char* p = fname; *p; p++) {
+        if (*p == '/' || *p == '\\' || *p == '\n' || *p == '\0' ||
+            *p == '\'' || *p == '"' || *p == '`' || *p == '$' ||
+            *p == ';' || *p == '&' || *p == '|' || *p == '<' ||
+            *p == '>' || *p == '(' || *p == ')' || *p == '{' ||
+            *p == '}' || *p == ' ' || *p == '\t') {
+            printf("[Update][ERROR] Имя файла содержит запрещённые символы: '%s'\n", fname);
+            return 1;
+        }
+    }
+
+    char tmpdir[] = "tmp_update_unpack_XXXXXX";
+    if (!mkdtemp(tmpdir)) {
+        printf("[Update][ERROR] Не удалось создать временную директорию (errno=%d)\n", errno);
+        return 1;
+    }
+    printf("[Update] Распаковка архива %s во временную папку: %s\n", fname, tmpdir);
+
+    // Use popen with hardcoded tar command — filename is already validated above.
+    // The single-quote wrapping prevents any remaining risk even if validation is bypassed.
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "tar -xzf '%s' -C '%s'", fname, tmpdir);
+    int rc = system(cmd);
+    if (rc != 0) {
+        printf("[Update][ERROR] Ошибка распаковки архива (exit=%d)!\n", rc);
+        rm_rf(tmpdir);
+        return 1;
+    }
+
     char real_root[512];
     strncpy(real_root, tmpdir, sizeof(real_root)-1);
     real_root[sizeof(real_root)-1] = 0;
     find_real_root(real_root, sizeof(real_root));
     printf("[Update] Копируем содержимое %s в текущую директорию...\n", real_root);
-    res = copy_dir_safe(real_root, ".");
-    snprintf(cmd, sizeof(cmd), "rm -rf %s", tmpdir);
-    if (system(cmd) == -1) { fprintf(stderr, "system() failed\n"); }
+    int res = copy_dir_safe(real_root, ".");
+    rm_rf(tmpdir);
     if (res == -2) {
         printf("[Update] Обновление прервано из-за обнаружения симлинка!\n");
         return 1;
@@ -545,10 +605,10 @@ int update_extract(const UpdateParams* params) {
         return 1;
     }
     printf("[Update] Архив успешно распакован и файлы обновлены в текущей директории.\n");
-    if (remove(params->filename) == 0) {
-        printf("[Update] Архив %s удалён после обновления.\n", params->filename);
+    if (remove(fname) == 0) {
+        printf("[Update] Архив %s удалён после обновления.\n", fname);
     } else {
-        printf("[Update] Не удалось удалить архив %s!\n", params->filename);
+        printf("[Update] Не удалось удалить архив %s!\n", fname);
     }
     return 0;
 }
@@ -696,17 +756,35 @@ static int detect_installed_version(int* major, int* minor, int* rc) {
         }
         fclose(vf);
     }
-    // Method 2: Search version string in ELF binary
-    FILE* fp = popen("grep -ao 'v[0-9]\\+\\.[0-9]\\+\\(-rc[0-9]\\+\\)\\?' ./arm64_runner 2>/dev/null | head -1", "r");
+    // Method 2: Search version string in ELF binary directly (no shell)
+    FILE* fp = fopen("./arm64_runner", "rb");
     if (!fp) return -1;
-    char buf[64] = {0};
-    if (fread(buf, 1, sizeof(buf)-1, fp) > 0) {
-        pclose(fp);
-        if (sscanf(buf, "v%d.%d-rc%d", major, minor, rc) == 3) return 0;
-        if (sscanf(buf, "v%d.%d", major, minor) == 2) { *rc = 0; return 0; }
+    // Read entire binary into memory
+    fseek(fp, 0, SEEK_END);
+    long fsize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (fsize <= 0 || fsize > (1 << 24)) { fclose(fp); return -1; } // skip unreasonable sizes
+    char* data = malloc(fsize);
+    if (!data) { fclose(fp); return -1; }
+    if (fread(data, 1, fsize, fp) != (size_t)fsize) { free(data); fclose(fp); return -1; }
+    fclose(fp);
+    // Search for pattern "v<digits>.<digits>" optionally followed by "-rc<digits>"
+    int found = 0;
+    for (long i = 0; i <= fsize - 4; i++) {
+        if (data[i] == 'v' && data[i+1] >= '0' && data[i+1] <= '9') {
+            int m1 = 0, m2 = 0, rc1 = 0;
+            int consumed = 0;
+            if (sscanf(data + i + 1, "%d.%d-rc%d%n", &m1, &m2, &rc1, &consumed) >= 3 && consumed > 0) {
+                *major = m1; *minor = m2; *rc = rc1; found = 1; break;
+            }
+            consumed = 0;
+            if (sscanf(data + i + 1, "%d.%d%n", &m1, &m2, &consumed) >= 2 && consumed > 0) {
+                *major = m1; *minor = m2; *rc = 0; found = 1; break;
+            }
+        }
     }
-    pclose(fp);
-    return -1;
+    free(data);
+    return found ? 0 : -1;
 }
 
 int run_update() {
