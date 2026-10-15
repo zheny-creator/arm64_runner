@@ -472,7 +472,7 @@ void interpret_arm64(Arm64State* state) {
                 if (offset & (INT64_C(1) << 25)) {
                     offset |= ~((INT64_C(1) << 26) - 1);
                 }
-                offset <<= 2;
+                offset *= 4; /* Avoid left-shifting a negative signed value. */
                 state->x[30] = state->pc;
                 state->pc = (state->pc - 4) + offset;
                 if (state->pc < state->base_addr) {
