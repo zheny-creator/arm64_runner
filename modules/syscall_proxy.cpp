@@ -168,15 +168,15 @@ static const std::unordered_map<long, long> arm64_to_x86_64_syscall = {
     {181, 241}, // mq_unlink
     {184, 244}, // mq_notify
     {185, 245}, // mq_getsetattr
-    {186, 186}, // msgget
+    {186, 68}, // msgget
     {187, 71}, // msgctl
     {188, 70}, // msgrcv
     {189, 69}, // msgsnd
     {190, 64}, // semget
     {191, 66}, // semctl
     {192, 220}, // semtimedop
-    {193, 193}, // semop
-    {194, 194}, // shmget
+    {193, 65}, // semop
+    {194, 29}, // shmget
     {195, 31}, // shmctl
     {196, 30}, // shmat
     {197, 67}, // shmdt
@@ -199,22 +199,22 @@ static const std::unordered_map<long, long> arm64_to_x86_64_syscall = {
     {214, 12}, // brk
     {215, 11}, // munmap
     {216, 25}, // mremap
-    {217, 27}, // mincore
-    {218, 28}, // madvise
-    {219, 237}, // mbind
-    {220, 238}, // set_mempolicy
-    {221, 239}, // get_mempolicy
+    {217, 248}, // add_key
+    {218, 249}, // request_key
+    {219, 250}, // keyctl
+    // AArch64 clone (220) is intentionally not mapped until its argument ABI is translated.
+    // AArch64 execve (221) is intentionally not mapped until guest argv/envp pointers are translated.
     {222, 9}, // mmap
-    {224, 165}, // swapon
-    {225, 166}, // swapoff
+    {224, 167}, // swapon
+    {225, 168}, // swapoff
     {226, 10}, // mprotect
-    {227, 227}, // msync
+    {227, 26}, // msync
     {228, 149}, // mlock
     {229, 150}, // munlock
     {230, 151}, // mlockall
     {231, 152}, // munlockall
-    {232, 232}, // mincore
-    {233, 233}, // madvise
+    {232, 27}, // mincore
+    {233, 28}, // madvise
     {234, 216}, // remap_file_pages
     {235, 237}, // mbind
     {236, 239}, // get_mempolicy
