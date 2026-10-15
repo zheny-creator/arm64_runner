@@ -16,8 +16,13 @@ namespace {
 
 struct TestImage {
     std::vector<unsigned char> bytes;
-    Elf64_Ehdr* ehdr;
-    Elf64_Phdr* phdr;
+
+    Elf64_Ehdr* ehdr() {
+        return reinterpret_cast<Elf64_Ehdr*>(bytes.data());
+    }
+    Elf64_Phdr* phdr() {
+        return reinterpret_cast<Elf64_Phdr*>(bytes.data() + sizeof(Elf64_Ehdr));
+    }
 };
 
 TestImage make_image() {
@@ -25,8 +30,7 @@ TestImage make_image() {
     const size_t payload_offset = sizeof(Elf64_Ehdr) + sizeof(Elf64_Phdr);
     image.bytes.resize(payload_offset + 4, 0);
 
-    image.ehdr = reinterpret_cast<Elf64_Ehdr*>(image.bytes.data());
-    std::memcpy(image.ehdr->e_ident, ELFMAG, SELFMAG);
+    std::memcpy(image.ehdr()->e_ident, ELFMAG, SELFMAG);
     image.ehdr->e_ident[EI_CLASS] = ELFCLASS64;
     image.ehdr->e_ident[EI_DATA] = ELFDATA2LSB;
     image.ehdr->e_ident[EI_VERSION] = EV_CURRENT;
@@ -39,9 +43,7 @@ TestImage make_image() {
     image.ehdr->e_phentsize = sizeof(Elf64_Phdr);
     image.ehdr->e_phnum = 1;
 
-    image.phdr = reinterpret_cast<Elf64_Phdr*>(
-        image.bytes.data() + sizeof(Elf64_Ehdr));
-    image.phdr->p_type = PT_LOAD;
+    image.phdr()->p_type = PT_LOAD;
     image.phdr->p_flags = PF_R | PF_X;
     image.phdr->p_offset = payload_offset;
     image.phdr->p_vaddr = 0x1000;
