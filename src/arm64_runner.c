@@ -346,7 +346,7 @@ void interpret_arm64(Arm64State* state) {
                 capstone_disasm(state->pc - 4, instr);
             }
         }
-        uint8_t opcode = (instr >> 24) & 0x3F;  // Opcode field used by the handlers: bits 24-29
+        uint8_t opcode = (instr >> 24) & 0x7F;  // Seven-bit opcode field used by the handlers: bits 24-30
         // printf("[DEBUG] PC=0x%lX, instr=0x%08X, opcode=0x%02X\n", state->pc, instr, opcode);
         
         // --- Explicit handling of LDR (literal, 64-bit) BEFORE switch-case ---
@@ -397,7 +397,7 @@ void interpret_arm64(Arm64State* state) {
                 set_nzcv(state, result, op1, op2, 1, 1, 1);
                 break;
             }
-            case 0x0A: {  // SUB (register)
+            case 0x4B: {  // SUB (register)
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint8_t rm = (instr >> 16) & 0x1F;
