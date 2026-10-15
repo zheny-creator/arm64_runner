@@ -173,6 +173,58 @@ int check_mem_bounds_aligned(Arm64State* state, uint64_t addr, size_t size, size
     return addr + size <= state->mem_size && (addr % align == 0);
 }
 
+
+/* Decode AArch64 logical-immediate bitmasks (AND/ORR/EOR immediate).
+ * Returns 1 for a valid encoding and writes the zero-extended immediate to out.
+ */
+static int decode_logical_immediate(uint32_t instr, uint64_t* out) {
+    if (!out) return 0;
+
+    const unsigned sf = (instr >> 31) & 1U;
+    const unsigned n = (instr >> 22) & 1U;
+    const unsigned immr = (instr >> 16) & 0x3FU;
+    const unsigned imms = (instr >> 10) & 0x3FU;
+    if (!sf && n) return 0; /* 32-bit forms require N == 0. */
+
+    const unsigned selector = (n << 6) | ((~imms) & 0x3FU);
+    int len = -1;
+    for (int bit = 6; bit >= 0; --bit) {
+        if (selector & (1U << bit)) {
+            len = bit;
+            break;
+        }
+    }
+    if (len < 1) return 0;
+
+    const unsigned levels = (1U << len) - 1U;
+    const unsigned s = imms & levels;
+    const unsigned r = immr & levels;
+    if (s == levels) return 0; /* Reserved all-ones element encoding. */
+
+    const unsigned element_bits = 1U << len;
+    const unsigned width = sf ? 64U : 32U;
+    if (element_bits > width) return 0;
+
+    uint64_t element = (s == 63U)
+        ? UINT64_MAX
+        : ((UINT64_C(1) << (s + 1U)) - 1U);
+    const uint64_t element_mask = element_bits == 64U
+        ? UINT64_MAX
+        : ((UINT64_C(1) << element_bits) - 1U);
+    const unsigned rotate = r % element_bits;
+    if (rotate != 0U) {
+        element = ((element >> rotate) |
+                   (element << (element_bits - rotate))) & element_mask;
+    }
+
+    uint64_t result = 0;
+    for (unsigned shift = 0; shift < width; shift += element_bits) {
+        result |= element << shift;
+    }
+    *out = result;
+    return 1;
+}
+
 // Helper function to update NZCV
 static void set_nzcv(Arm64State* state, uint64_t result, uint64_t op1, uint64_t op2, int is_sub, int set_c, int set_v) {
     state->nzcv = 0;
@@ -395,22 +447,49 @@ void interpret_arm64(Arm64State* state) {
             case 0x12: {  // AND (immediate)
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
-                uint16_t imm = (instr >> 10) & 0xFFF;
-                state->x[rd] = state->x[rn] & imm;
+                uint64_t imm = 0;
+                if (!decode_logical_immediate(instr, &imm)) {
+                    fprintf(stderr, "[ERROR] Invalid AArch64 logical immediate at PC=0x%lX\\n", state->pc - 4);
+                    state->exited = 1;
+                    state->exit_code = 1;
+                    break;
+                }
+                uint64_t lhs = rn == 31 ? 0 : state->x[rn];
+                uint64_t result = lhs & imm;
+                if (((instr >> 31) & 1U) == 0) result = (uint32_t)result;
+                if (rd != 31) state->x[rd] = result; /* Rd=31 is WZR/XZR here. */
                 break;
             }
             case 0x32: {  // ORR (immediate)
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
-                uint16_t imm = (instr >> 10) & 0xFFF;
-                state->x[rd] = state->x[rn] | imm;
+                uint64_t imm = 0;
+                if (!decode_logical_immediate(instr, &imm)) {
+                    fprintf(stderr, "[ERROR] Invalid AArch64 logical immediate at PC=0x%lX\\n", state->pc - 4);
+                    state->exited = 1;
+                    state->exit_code = 1;
+                    break;
+                }
+                uint64_t lhs = rn == 31 ? 0 : state->x[rn];
+                uint64_t result = lhs | imm;
+                if (((instr >> 31) & 1U) == 0) result = (uint32_t)result;
+                if (rd != 31) state->x[rd] = result; /* Rd=31 is WZR/XZR here. */
                 break;
             }
             case 0x52: {  // EOR (immediate)
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
-                uint16_t imm = (instr >> 10) & 0xFFF;
-                state->x[rd] = state->x[rn] ^ imm;
+                uint64_t imm = 0;
+                if (!decode_logical_immediate(instr, &imm)) {
+                    fprintf(stderr, "[ERROR] Invalid AArch64 logical immediate at PC=0x%lX\\n", state->pc - 4);
+                    state->exited = 1;
+                    state->exit_code = 1;
+                    break;
+                }
+                uint64_t lhs = rn == 31 ? 0 : state->x[rn];
+                uint64_t result = lhs ^ imm;
+                if (((instr >> 31) & 1U) == 0) result = (uint32_t)result;
+                if (rd != 31) state->x[rd] = result; /* Rd=31 is WZR/XZR here. */
                 break;
             }
             case 0x5C: {  // REV (reverse bytes)
