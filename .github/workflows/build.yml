@@ -41,6 +41,9 @@ jobs:
           make release
         fi
 
+    - name: Run unit tests
+      run: make test
+
     - name: Run basic tests
       run: |
         echo "=== arm64_runner ==="
