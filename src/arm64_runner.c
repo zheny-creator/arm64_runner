@@ -418,23 +418,19 @@ void interpret_arm64(Arm64State* state) {
                 state->x[rd] = (state->pc - 4) + offset;
                 break;
             }
-            case 0x25: {  // MOVZ/MOVN/BL
-                if ((instr >> 31) & 1) {
-                    int32_t offset = (instr & 0x3FFFFFF) << 2;
-                    offset = (offset << 6) >> 6;
-                    state->x[30] = state->pc;
-                    state->pc += offset - 4;
-                    if (state->pc < state->base_addr) {
-                        if (debug_enabled) fprintf(stderr, "PC (0x%lX) below base_addr (0x%lX) after BL!\n", state->pc, state->base_addr);
-                        dump_registers(state);
-                        exit(1);
-                    }
-                } else {
-                    uint8_t hw = (instr >> 21) & 0x3;
-                    uint16_t imm16 = (instr >> 5) & 0xFFFF;
-                    uint8_t rd = instr & 0x1F;
-                    uint64_t value = ~((uint64_t)imm16 << (hw * 16));
-                    state->x[rd] = value;
+            case 0x14: {  // BL (branch with link)
+                int64_t offset = (int64_t)(instr & 0x03FFFFFFU);
+                if (offset & (INT64_C(1) << 25)) {
+                    offset |= ~((INT64_C(1) << 26) - 1);
+                }
+                offset <<= 2;
+                state->x[30] = state->pc;
+                state->pc = (state->pc - 4) + offset;
+                if (state->pc < state->base_addr) {
+                    if (debug_enabled) fprintf(stderr, "PC (0x%lX) below base_addr (0x%lX) after BL!\\n", state->pc, state->base_addr);
+                    dump_registers(state);
+                    state->exited = 1;
+                    state->exit_code = 1;
                 }
                 break;
             }
@@ -444,8 +440,23 @@ void interpret_arm64(Arm64State* state) {
                 state->x[rd] = state->x[rn];
                 break;
             }
-            case 0x12: {  // AND (immediate)
+            case 0x12: {  // MOVN or AND (immediate)
                 uint8_t rd = instr & 0x1F;
+                if ((instr & 0x7F800000U) == 0x12800000U) {
+                    uint8_t hw = (instr >> 21) & 0x3;
+                    uint16_t imm16 = (instr >> 5) & 0xFFFF;
+                    const int is_64bit = (instr >> 31) & 1U;
+                    if (!is_64bit && hw > 1) {
+                        fprintf(stderr, "[ERROR] Invalid MOVN encoding at PC=0x%lX\\n", state->pc - 4);
+                        state->exited = 1;
+                        state->exit_code = 1;
+                        break;
+                    }
+                    uint64_t value = ~((uint64_t)imm16 << (hw * 16));
+                    if (!is_64bit) value = (uint32_t)value;
+                    if (rd != 31) state->x[rd] = value;
+                    break;
+                }
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint64_t imm = 0;
                 if (!decode_logical_immediate(instr, &imm)) {
@@ -476,8 +487,23 @@ void interpret_arm64(Arm64State* state) {
                 if (rd != 31) state->x[rd] = result; /* Rd=31 is WZR/XZR here. */
                 break;
             }
-            case 0x52: {  // EOR (immediate)
+            case 0x52: {  // MOVZ or EOR (immediate)
                 uint8_t rd = instr & 0x1F;
+                if ((instr & 0x7F800000U) == 0x52800000U) {
+                    uint8_t hw = (instr >> 21) & 0x3;
+                    uint16_t imm16 = (instr >> 5) & 0xFFFF;
+                    const int is_64bit = (instr >> 31) & 1U;
+                    if (!is_64bit && hw > 1) {
+                        fprintf(stderr, "[ERROR] Invalid MOVZ encoding at PC=0x%lX\\n", state->pc - 4);
+                        state->exited = 1;
+                        state->exit_code = 1;
+                        break;
+                    }
+                    uint64_t value = (uint64_t)imm16 << (hw * 16);
+                    if (!is_64bit) value = (uint32_t)value;
+                    if (rd != 31) state->x[rd] = value;
+                    break;
+                }
                 uint8_t rn = (instr >> 5) & 0x1F;
                 uint64_t imm = 0;
                 if (!decode_logical_immediate(instr, &imm)) {
