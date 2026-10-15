@@ -162,7 +162,7 @@ clean:
 	rm -f arm64-runner-*.tar.gz
 	rm -rf arm64-runner-*
 	rm -rf deb_dist rpm_buildroot
-	rm -f tests/test_basic tests/hello_x86
+	rm -f tests/test_basic tests/hello_x86 tests/test_elf_loader
 
 # =====================================================
 # Установка
@@ -175,8 +175,11 @@ install: all
 # Тестирование
 # =====================================================
 
-test:
-	@echo "[INFO] No test sources present."
+tests/test_elf_loader: tests/test_elf_loader.cpp modules/elf_loader.cpp include/elf_loader.h
+	$(CXX) $(CXXFLAGS) tests/test_elf_loader.cpp modules/elf_loader.cpp -o $@
+
+test: tests/test_elf_loader
+	./tests/test_elf_loader
 
 # =====================================================
 # Проверка зависимостей
