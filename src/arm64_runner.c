@@ -246,6 +246,27 @@ static void set_nzcv(Arm64State* state, uint64_t result, uint64_t op1, uint64_t 
     }
 }
 
+/* Width-aware NZCV calculation for 32-bit and 64-bit add/sub instructions. */
+static void set_nzcv_width(Arm64State* state, uint64_t result, uint64_t op1,
+                           uint64_t op2, int is_sub, unsigned width) {
+    const uint64_t mask = width == 32U ? UINT32_MAX : UINT64_MAX;
+    const uint64_t sign = UINT64_C(1) << (width - 1U);
+    result &= mask;
+    op1 &= mask;
+    op2 &= mask;
+
+    state->nzcv = 0;
+    if (result & sign) state->nzcv |= 0x80000000U; /* N */
+    if (result == 0) state->nzcv |= 0x40000000U;  /* Z */
+    if (is_sub ? (op1 >= op2) : (op1 > mask - op2)) {
+        state->nzcv |= 0x20000000U; /* C */
+    }
+    const uint64_t overflow = is_sub
+        ? ((op1 ^ op2) & (op1 ^ result) & sign)
+        : (~(op1 ^ op2) & (op1 ^ result) & sign);
+    if (overflow) state->nzcv |= 0x10000000U; /* V */
+}
+
 // Helper function to check condition for branch based on NZCV
 static int check_cond(uint32_t nzcv, uint8_t cond) {
     int N = (nzcv >> 31) & 1;
@@ -362,50 +383,78 @@ void interpret_arm64(Arm64State* state) {
             }
             continue;
         }
-        // --- New switch on opcodes (bits 26-31) ---
+        // --- Dispatch using the seven-bit opcode field (bits 24-30) ---
         switch (opcode) {
-            case 0x11: {  // ADD (immediate)
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint16_t imm = (instr >> 10) & 0xFFF;
-                uint64_t op1 = state->x[rn];
-                uint64_t op2 = imm;
+            case 0x11:  // ADD (immediate), no flags
+            case 0x31: { // ADDS (immediate), set flags
+                const uint8_t rd = instr & 0x1F;
+                const uint8_t rn = (instr >> 5) & 0x1F;
+                const uint64_t imm12 = (instr >> 10) & 0xFFFU;
+                const uint64_t op2 = imm12 << (((instr >> 22) & 1U) ? 12U : 0U);
+                const unsigned width = ((instr >> 31) & 1U) ? 64U : 32U;
+                const int set_flags = opcode == 0x31;
+                const uint64_t op1 = rn == 31 ? state->sp : state->x[rn];
                 uint64_t result = op1 + op2;
-                state->x[rd] = result;
-                set_nzcv(state, result, op1, op2, 0, 1, 1);
+                if (width == 32U) result = (uint32_t)result;
+                if (set_flags) {
+                    set_nzcv_width(state, result, op1, op2, 0, width);
+                    if (rd != 31) state->x[rd] = result;
+                } else if (rd == 31) {
+                    state->sp = result;
+                } else {
+                    state->x[rd] = result;
+                }
                 break;
             }
-            case 0x0B: {  // ADD (register)
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint8_t rm = (instr >> 16) & 0x1F;
-                uint64_t op1 = state->x[rn];
-                uint64_t op2 = state->x[rm];
+            case 0x0B:  // ADD (register), no flags
+            case 0x2B: { // ADDS (register), set flags
+                const uint8_t rd = instr & 0x1F;
+                const uint8_t rn = (instr >> 5) & 0x1F;
+                const uint8_t rm = (instr >> 16) & 0x1F;
+                const unsigned width = ((instr >> 31) & 1U) ? 64U : 32U;
+                const int set_flags = opcode == 0x2B;
+                const uint64_t op1 = rn == 31 ? 0 : state->x[rn];
+                const uint64_t op2 = rm == 31 ? 0 : state->x[rm];
                 uint64_t result = op1 + op2;
-                state->x[rd] = result;
-                set_nzcv(state, result, op1, op2, 0, 1, 1);
+                if (width == 32U) result = (uint32_t)result;
+                if (set_flags) set_nzcv_width(state, result, op1, op2, 0, width);
+                if (rd != 31) state->x[rd] = result;
                 break;
             }
-            case 0x51: {  // SUB (immediate)
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint16_t imm = (instr >> 10) & 0xFFF;
-                uint64_t op1 = state->x[rn];
-                uint64_t op2 = imm;
+            case 0x51:  // SUB (immediate), no flags
+            case 0x71: { // SUBS (immediate), set flags
+                const uint8_t rd = instr & 0x1F;
+                const uint8_t rn = (instr >> 5) & 0x1F;
+                const uint64_t imm12 = (instr >> 10) & 0xFFFU;
+                const uint64_t op2 = imm12 << (((instr >> 22) & 1U) ? 12U : 0U);
+                const unsigned width = ((instr >> 31) & 1U) ? 64U : 32U;
+                const int set_flags = opcode == 0x71;
+                const uint64_t op1 = rn == 31 ? state->sp : state->x[rn];
                 uint64_t result = op1 - op2;
-                state->x[rd] = result;
-                set_nzcv(state, result, op1, op2, 1, 1, 1);
+                if (width == 32U) result = (uint32_t)result;
+                if (set_flags) {
+                    set_nzcv_width(state, result, op1, op2, 1, width);
+                    if (rd != 31) state->x[rd] = result;
+                } else if (rd == 31) {
+                    state->sp = result;
+                } else {
+                    state->x[rd] = result;
+                }
                 break;
             }
-            case 0x4B: {  // SUB (register)
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint8_t rm = (instr >> 16) & 0x1F;
-                uint64_t op1 = state->x[rn];
-                uint64_t op2 = state->x[rm];
+            case 0x4B:  // SUB (register), no flags
+            case 0x6B: { // SUBS (register), set flags
+                const uint8_t rd = instr & 0x1F;
+                const uint8_t rn = (instr >> 5) & 0x1F;
+                const uint8_t rm = (instr >> 16) & 0x1F;
+                const unsigned width = ((instr >> 31) & 1U) ? 64U : 32U;
+                const int set_flags = opcode == 0x6B;
+                const uint64_t op1 = rn == 31 ? 0 : state->x[rn];
+                const uint64_t op2 = rm == 31 ? 0 : state->x[rm];
                 uint64_t result = op1 - op2;
-                state->x[rd] = result;
-                set_nzcv(state, result, op1, op2, 1, 1, 1);
+                if (width == 32U) result = (uint32_t)result;
+                if (set_flags) set_nzcv_width(state, result, op1, op2, 1, width);
+                if (rd != 31) state->x[rd] = result;
                 break;
             }
             case 0x04: { // ADR (compute address)
