@@ -173,6 +173,58 @@ int check_mem_bounds_aligned(Arm64State* state, uint64_t addr, size_t size, size
     return addr + size <= state->mem_size && (addr % align == 0);
 }
 
+
+/* Decode AArch64 logical-immediate bitmasks (AND/ORR/EOR immediate).
+ * Returns 1 for a valid encoding and writes the zero-extended immediate to out.
+ */
+static int decode_logical_immediate(uint32_t instr, uint64_t* out) {
+    if (!out) return 0;
+
+    const unsigned sf = (instr >> 31) & 1U;
+    const unsigned n = (instr >> 22) & 1U;
+    const unsigned immr = (instr >> 16) & 0x3FU;
+    const unsigned imms = (instr >> 10) & 0x3FU;
+    if (!sf && n) return 0; /* 32-bit forms require N == 0. */
+
+    const unsigned selector = (n << 6) | ((~imms) & 0x3FU);
+    int len = -1;
+    for (int bit = 6; bit >= 0; --bit) {
+        if (selector & (1U << bit)) {
+            len = bit;
+            break;
+        }
+    }
+    if (len < 1) return 0;
+
+    const unsigned levels = (1U << len) - 1U;
+    const unsigned s = imms & levels;
+    const unsigned r = immr & levels;
+    if (s == levels) return 0; /* Reserved all-ones element encoding. */
+
+    const unsigned element_bits = 1U << len;
+    const unsigned width = sf ? 64U : 32U;
+    if (element_bits > width) return 0;
+
+    uint64_t element = (s == 63U)
+        ? UINT64_MAX
+        : ((UINT64_C(1) << (s + 1U)) - 1U);
+    const uint64_t element_mask = element_bits == 64U
+        ? UINT64_MAX
+        : ((UINT64_C(1) << element_bits) - 1U);
+    const unsigned rotate = r % element_bits;
+    if (rotate != 0U) {
+        element = ((element >> rotate) |
+                   (element << (element_bits - rotate))) & element_mask;
+    }
+
+    uint64_t result = 0;
+    for (unsigned shift = 0; shift < width; shift += element_bits) {
+        result |= element << shift;
+    }
+    *out = result;
+    return 1;
+}
+
 // Helper function to update NZCV
 static void set_nzcv(Arm64State* state, uint64_t result, uint64_t op1, uint64_t op2, int is_sub, int set_c, int set_v) {
     state->nzcv = 0;
@@ -192,6 +244,27 @@ static void set_nzcv(Arm64State* state, uint64_t result, uint64_t op1, uint64_t 
             if (~(op1 ^ op2) & (op1 ^ result) & 0x8000000000000000ULL) state->nzcv |= 0x10000000; // V
         }
     }
+}
+
+/* Width-aware NZCV calculation for 32-bit and 64-bit add/sub instructions. */
+static void set_nzcv_width(Arm64State* state, uint64_t result, uint64_t op1,
+                           uint64_t op2, int is_sub, unsigned width) {
+    const uint64_t mask = width == 32U ? UINT32_MAX : UINT64_MAX;
+    const uint64_t sign = UINT64_C(1) << (width - 1U);
+    result &= mask;
+    op1 &= mask;
+    op2 &= mask;
+
+    state->nzcv = 0;
+    if (result & sign) state->nzcv |= 0x80000000U; /* N */
+    if (result == 0) state->nzcv |= 0x40000000U;  /* Z */
+    if (is_sub ? (op1 >= op2) : (op1 > mask - op2)) {
+        state->nzcv |= 0x20000000U; /* C */
+    }
+    const uint64_t overflow = is_sub
+        ? ((op1 ^ op2) & (op1 ^ result) & sign)
+        : (~(op1 ^ op2) & (op1 ^ result) & sign);
+    if (overflow) state->nzcv |= 0x10000000U; /* V */
 }
 
 // Helper function to check condition for branch based on NZCV
@@ -294,7 +367,8 @@ void interpret_arm64(Arm64State* state) {
                 capstone_disasm(state->pc - 4, instr);
             }
         }
-        uint8_t opcode = (instr >> 26) & 0x3F;  // Use bits 26-31 to determine instruction type
+        uint8_t opcode = (instr >> 26) & 0x3F;  // Legacy dispatch field used by the existing handlers
+        uint8_t opcode7 = (instr >> 24) & 0x7F; // AArch64 opcode field for the corrected handlers
         // printf("[DEBUG] PC=0x%lX, instr=0x%08X, opcode=0x%02X\n", state->pc, instr, opcode);
         
         // --- Explicit handling of LDR (literal, 64-bit) BEFORE switch-case ---
@@ -310,52 +384,178 @@ void interpret_arm64(Arm64State* state) {
             }
             continue;
         }
-        // --- New switch on opcodes (bits 26-31) ---
+        // Corrected handlers use the seven-bit opcode field. Keep them separate from
+        // the legacy dispatcher, which also contains old syscall-number case labels.
+        switch (opcode7) {
+            case 0x11:  // ADD (immediate), no flags
+            case 0x31: { // ADDS (immediate), set flags
+                const uint8_t rd = instr & 0x1F;
+                const uint8_t rn = (instr >> 5) & 0x1F;
+                const uint64_t imm12 = (instr >> 10) & 0xFFFU;
+                const uint64_t op2 = imm12 << (((instr >> 22) & 1U) ? 12U : 0U);
+                const unsigned width = ((instr >> 31) & 1U) ? 64U : 32U;
+                const int set_flags = opcode7 == 0x31;
+                const uint64_t op1 = rn == 31 ? state->sp : state->x[rn];
+                uint64_t result = op1 + op2;
+                if (width == 32U) result = (uint32_t)result;
+                if (set_flags) {
+                    set_nzcv_width(state, result, op1, op2, 0, width);
+                    if (rd != 31) state->x[rd] = result;
+                } else if (rd == 31) {
+                    state->sp = result;
+                } else {
+                    state->x[rd] = result;
+                }
+                continue;
+            }
+            case 0x0B:  // ADD (register), no flags
+            case 0x2B: { // ADDS (register), set flags
+                const uint8_t rd = instr & 0x1F;
+                const uint8_t rn = (instr >> 5) & 0x1F;
+                const uint8_t rm = (instr >> 16) & 0x1F;
+                const unsigned width = ((instr >> 31) & 1U) ? 64U : 32U;
+                const int set_flags = opcode7 == 0x2B;
+                const uint64_t op1 = rn == 31 ? 0 : state->x[rn];
+                const uint64_t op2 = rm == 31 ? 0 : state->x[rm];
+                uint64_t result = op1 + op2;
+                if (width == 32U) result = (uint32_t)result;
+                if (set_flags) set_nzcv_width(state, result, op1, op2, 0, width);
+                if (rd != 31) state->x[rd] = result;
+                continue;
+            }
+            case 0x51:  // SUB (immediate), no flags
+            case 0x71: { // SUBS (immediate), set flags
+                const uint8_t rd = instr & 0x1F;
+                const uint8_t rn = (instr >> 5) & 0x1F;
+                const uint64_t imm12 = (instr >> 10) & 0xFFFU;
+                const uint64_t op2 = imm12 << (((instr >> 22) & 1U) ? 12U : 0U);
+                const unsigned width = ((instr >> 31) & 1U) ? 64U : 32U;
+                const int set_flags = opcode7 == 0x71;
+                const uint64_t op1 = rn == 31 ? state->sp : state->x[rn];
+                uint64_t result = op1 - op2;
+                if (width == 32U) result = (uint32_t)result;
+                if (set_flags) {
+                    set_nzcv_width(state, result, op1, op2, 1, width);
+                    if (rd != 31) state->x[rd] = result;
+                } else if (rd == 31) {
+                    state->sp = result;
+                } else {
+                    state->x[rd] = result;
+                }
+                continue;
+            }
+            case 0x4B:  // SUB (register), no flags
+            case 0x6B: { // SUBS (register), set flags
+                const uint8_t rd = instr & 0x1F;
+                const uint8_t rn = (instr >> 5) & 0x1F;
+                const uint8_t rm = (instr >> 16) & 0x1F;
+                const unsigned width = ((instr >> 31) & 1U) ? 64U : 32U;
+                const int set_flags = opcode7 == 0x6B;
+                const uint64_t op1 = rn == 31 ? 0 : state->x[rn];
+                const uint64_t op2 = rm == 31 ? 0 : state->x[rm];
+                uint64_t result = op1 - op2;
+                if (width == 32U) result = (uint32_t)result;
+                if (set_flags) set_nzcv_width(state, result, op1, op2, 1, width);
+                if (rd != 31) state->x[rd] = result;
+                continue;
+            }
+            case 0x12: { // MOVN or AND (immediate)
+                const uint8_t rd = instr & 0x1F;
+                if ((instr & 0x7F800000U) == 0x12800000U) {
+                    const uint8_t hw = (instr >> 21) & 0x3;
+                    const uint16_t imm16 = (instr >> 5) & 0xFFFF;
+                    const int is_64bit = (instr >> 31) & 1U;
+                    if (!is_64bit && hw > 1) {
+                        fprintf(stderr, "[ERROR] Invalid MOVN encoding at PC=0x%lX\\n", state->pc - 4);
+                        state->exited = 1;
+                        state->exit_code = 1;
+                        continue;
+                    }
+                    uint64_t value = ~((uint64_t)imm16 << (hw * 16));
+                    if (!is_64bit) value = (uint32_t)value;
+                    if (rd != 31) state->x[rd] = value;
+                    continue;
+                }
+                const uint8_t rn = (instr >> 5) & 0x1F;
+                uint64_t imm = 0;
+                if (!decode_logical_immediate(instr, &imm)) {
+                    fprintf(stderr, "[ERROR] Invalid AArch64 logical immediate at PC=0x%lX\\n", state->pc - 4);
+                    state->exited = 1;
+                    state->exit_code = 1;
+                    continue;
+                }
+                uint64_t result = (rn == 31 ? 0 : state->x[rn]) & imm;
+                if (((instr >> 31) & 1U) == 0) result = (uint32_t)result;
+                if (rd != 31) state->x[rd] = result;
+                continue;
+            }
+            case 0x32: { // ORR (immediate)
+                const uint8_t rd = instr & 0x1F;
+                const uint8_t rn = (instr >> 5) & 0x1F;
+                uint64_t imm = 0;
+                if (!decode_logical_immediate(instr, &imm)) {
+                    fprintf(stderr, "[ERROR] Invalid AArch64 logical immediate at PC=0x%lX\\n", state->pc - 4);
+                    state->exited = 1;
+                    state->exit_code = 1;
+                    continue;
+                }
+                uint64_t result = (rn == 31 ? 0 : state->x[rn]) | imm;
+                if (((instr >> 31) & 1U) == 0) result = (uint32_t)result;
+                if (rd != 31) state->x[rd] = result;
+                continue;
+            }
+            case 0x52: { // MOVZ or EOR (immediate)
+                const uint8_t rd = instr & 0x1F;
+                if ((instr & 0x7F800000U) == 0x52800000U) {
+                    const uint8_t hw = (instr >> 21) & 0x3;
+                    const uint16_t imm16 = (instr >> 5) & 0xFFFF;
+                    const int is_64bit = (instr >> 31) & 1U;
+                    if (!is_64bit && hw > 1) {
+                        fprintf(stderr, "[ERROR] Invalid MOVZ encoding at PC=0x%lX\\n", state->pc - 4);
+                        state->exited = 1;
+                        state->exit_code = 1;
+                        continue;
+                    }
+                    uint64_t value = (uint64_t)imm16 << (hw * 16);
+                    if (!is_64bit) value = (uint32_t)value;
+                    if (rd != 31) state->x[rd] = value;
+                    continue;
+                }
+                const uint8_t rn = (instr >> 5) & 0x1F;
+                uint64_t imm = 0;
+                if (!decode_logical_immediate(instr, &imm)) {
+                    fprintf(stderr, "[ERROR] Invalid AArch64 logical immediate at PC=0x%lX\\n", state->pc - 4);
+                    state->exited = 1;
+                    state->exit_code = 1;
+                    continue;
+                }
+                uint64_t result = (rn == 31 ? 0 : state->x[rn]) ^ imm;
+                if (((instr >> 31) & 1U) == 0) result = (uint32_t)result;
+                if (rd != 31) state->x[rd] = result;
+                continue;
+            }
+            case 0x14: { // BL (branch with link)
+                int64_t offset = (int64_t)(instr & 0x03FFFFFFU);
+                if (offset & (INT64_C(1) << 25)) {
+                    offset |= ~((INT64_C(1) << 26) - 1);
+                }
+                offset *= 4;
+                state->x[30] = state->pc;
+                state->pc = (state->pc - 4) + offset;
+                if (state->pc < state->base_addr) {
+                    if (debug_enabled) fprintf(stderr, "PC (0x%lX) below base_addr (0x%lX) after BL!\\n", state->pc, state->base_addr);
+                    dump_registers(state);
+                    state->exited = 1;
+                    state->exit_code = 1;
+                }
+                continue;
+            }
+            default:
+                break;
+        }
+
+        // --- Legacy dispatch: preserve the original opcode field for existing handlers. ---
         switch (opcode) {
-            case 0x11: {  // ADD (immediate)
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint16_t imm = (instr >> 10) & 0xFFF;
-                uint64_t op1 = state->x[rn];
-                uint64_t op2 = imm;
-                uint64_t result = op1 + op2;
-                state->x[rd] = result;
-                set_nzcv(state, result, op1, op2, 0, 1, 1);
-                break;
-            }
-            case 0x0B: {  // ADD (register)
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint8_t rm = (instr >> 16) & 0x1F;
-                uint64_t op1 = state->x[rn];
-                uint64_t op2 = state->x[rm];
-                uint64_t result = op1 + op2;
-                state->x[rd] = result;
-                set_nzcv(state, result, op1, op2, 0, 1, 1);
-                break;
-            }
-            case 0x51: {  // SUB (immediate)
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint16_t imm = (instr >> 10) & 0xFFF;
-                uint64_t op1 = state->x[rn];
-                uint64_t op2 = imm;
-                uint64_t result = op1 - op2;
-                state->x[rd] = result;
-                set_nzcv(state, result, op1, op2, 1, 1, 1);
-                break;
-            }
-            case 0x0A: {  // SUB (register)
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint8_t rm = (instr >> 16) & 0x1F;
-                uint64_t op1 = state->x[rn];
-                uint64_t op2 = state->x[rm];
-                uint64_t result = op1 - op2;
-                state->x[rd] = result;
-                set_nzcv(state, result, op1, op2, 1, 1, 1);
-                break;
-            }
             case 0x04: { // ADR (compute address)
                 uint8_t rd = instr & 0x1F;
                 uint8_t immlo = (instr >> 29) & 0x3;
@@ -366,51 +566,10 @@ void interpret_arm64(Arm64State* state) {
                 state->x[rd] = (state->pc - 4) + offset;
                 break;
             }
-            case 0x25: {  // MOVZ/MOVN/BL
-                if ((instr >> 31) & 1) {
-                    int32_t offset = (instr & 0x3FFFFFF) << 2;
-                    offset = (offset << 6) >> 6;
-                    state->x[30] = state->pc;
-                    state->pc += offset - 4;
-                    if (state->pc < state->base_addr) {
-                        if (debug_enabled) fprintf(stderr, "PC (0x%lX) below base_addr (0x%lX) after BL!\n", state->pc, state->base_addr);
-                        dump_registers(state);
-                        exit(1);
-                    }
-                } else {
-                    uint8_t hw = (instr >> 21) & 0x3;
-                    uint16_t imm16 = (instr >> 5) & 0xFFFF;
-                    uint8_t rd = instr & 0x1F;
-                    uint64_t value = ~((uint64_t)imm16 << (hw * 16));
-                    state->x[rd] = value;
-                }
-                break;
-            }
             case 0x2A: {  // MOV (copy register)
                 uint8_t rd = instr & 0x1F;
                 uint8_t rn = (instr >> 5) & 0x1F;
                 state->x[rd] = state->x[rn];
-                break;
-            }
-            case 0x12: {  // AND (immediate)
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint16_t imm = (instr >> 10) & 0xFFF;
-                state->x[rd] = state->x[rn] & imm;
-                break;
-            }
-            case 0x32: {  // ORR (immediate)
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint16_t imm = (instr >> 10) & 0xFFF;
-                state->x[rd] = state->x[rn] | imm;
-                break;
-            }
-            case 0x52: {  // EOR (immediate)
-                uint8_t rd = instr & 0x1F;
-                uint8_t rn = (instr >> 5) & 0x1F;
-                uint16_t imm = (instr >> 10) & 0xFFF;
-                state->x[rd] = state->x[rn] ^ imm;
                 break;
             }
             case 0x5C: {  // REV (reverse bytes)
