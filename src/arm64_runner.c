@@ -346,7 +346,7 @@ void interpret_arm64(Arm64State* state) {
                 capstone_disasm(state->pc - 4, instr);
             }
         }
-        uint8_t opcode = (instr >> 26) & 0x3F;  // Use bits 26-31 to determine instruction type
+        uint8_t opcode = (instr >> 24) & 0x3F;  // Opcode field used by the handlers: bits 24-29
         // printf("[DEBUG] PC=0x%lX, instr=0x%08X, opcode=0x%02X\n", state->pc, instr, opcode);
         
         // --- Explicit handling of LDR (literal, 64-bit) BEFORE switch-case ---
